@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Last.fm — Custom Web App</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/4.13.0/d3.min.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1 class="logo">Last.fm<span class="logo-accent">+</span></h1>
+      <div class="header-actions">
+        <span id="username" class="username"></span>
+        <button id="btnLogin" type="button" class="btn btn-primary">Log in with Last.fm</button>
+        <button id="btnLogout" type="button" class="btn btn-ghost" hidden>Log out</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section id="welcome" class="card welcome">
+        <p>Connect your Last.fm account to use custom features the main site doesn’t offer: export recent tracks, top artists, and any API method you want to add.</p>
+        <p class="muted">Get an API key at <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener">last.fm/api/account/create</a> and set <code>LASTFM_API_KEY</code> and <code>LASTFM_API_SECRET</code> in <code>.env</code>.</p>
+      </section>
+
+      <section id="dashboard" class="dashboard" hidden>
+        <h2>Custom tools</h2>
+        <div class="card tool-card top-tracks-by-artist">
+          <h3>My top tracks by artist</h3>
+          <p>See your most-played tracks for one artist. Pick from your top artists or type any artist name.</p>
+          <div class="artist-source">
+            <label class="label">From your top artists</label>
+            <select id="artistFromTop" class="input">
+              <option value="">— Load your top artists first —</option>
+            </select>
+            <label class="label">Or type any artist</label>
+            <input type="text" id="artistSearch" class="input" placeholder="e.g. Radiohead" />
+          </div>
+          <div class="tool-actions">
+            <select id="tracksByArtistPeriod" class="input-narrow">
+              <option value="7day">Last 7 days</option>
+              <option value="1month">1 month</option>
+              <option value="3month">3 months</option>
+              <option value="6month">6 months</option>
+              <option value="12month" selected>12 months</option>
+              <option value="overall">Overall</option>
+            </select>
+            <button type="button" id="btnTopTracksByArtist" class="btn btn-primary">Get my top tracks</button>
+          </div>
+          <div id="tracksByArtistResults" class="tracks-results" hidden>
+            <p class="results-meta" id="tracksByArtistMeta"></p>
+            <ol id="tracksByArtistList" class="tracks-list"></ol>
+          </div>
+          <pre id="tracksByArtistPreview" class="preview"></pre>
+        </div>
+
+        <div class="card tool-card bubble-chart">
+          <h3>Top artists bubble chart</h3>
+          <p>Visualize your top artists as bubbles sized by playcount. (Images are loaded from Last.fm when available.)</p>
+          <div class="tool-actions">
+            <select id="bubblePeriod" class="input-narrow">
+              <option value="7day">Last 7 days</option>
+              <option value="1month">1 month</option>
+              <option value="3month">3 months</option>
+              <option value="6month">6 months</option>
+              <option value="12month" selected>12 months</option>
+              <option value="overall">Overall</option>
+            </select>
+            <input type="number" id="bubbleCount" value="50" min="5" max="50" class="input-narrow" />
+            <button type="button" id="btnBubbleLoad" class="btn btn-primary">Build chart</button>
+          </div>
+          <div id="bubbleChart" class="bubble-chart-area" aria-label="Bubble chart"></div>
+          <p class="muted bubble-hint">Tip: hover a bubble to see the artist name and playcount.</p>
+        </div>
+
+        <div class="tool-grid">
+          <div class="card tool-card">
+            <h3>Export recent tracks</h3>
+            <p>Download your recent scrobbles as JSON (with optional date range).</p>
+            <div class="tool-actions">
+              <input type="number" id="recentLimit" value="50" min="1" max="200" class="input-narrow" />
+              <button type="button" id="btnRecentExport" class="btn btn-secondary">Fetch & download</button>
+            </div>
+            <pre id="recentPreview" class="preview"></pre>
+          </div>
+          <div class="card tool-card">
+            <h3>Top artists</h3>
+            <p>View your top artists for a time period.</p>
+            <div class="tool-actions">
+              <select id="topPeriod" class="input-narrow">
+                <option value="7day">Last 7 days</option>
+                <option value="1month">1 month</option>
+                <option value="3month">3 months</option>
+                <option value="6month">6 months</option>
+                <option value="12month" selected>12 months</option>
+                <option value="overall">Overall</option>
+              </select>
+              <button type="button" id="btnTopArtists" class="btn btn-secondary">Load</button>
+            </div>
+            <div id="topArtistsResults" class="tracks-results" hidden>
+              <p class="results-meta" id="topArtistsMeta"></p>
+              <ol id="topArtistsList" class="tracks-list"></ol>
+            </div>
+            <pre id="topPreview" class="preview"></pre>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Raw API</h3>
+          <p class="muted">Call any Last.fm method (read-only). Example: <code>user.getRecentTracks</code> with <code>user=YourUsername</code>.</p>
+          <div class="raw-api">
+            <input type="text" id="rawMethod" placeholder="e.g. user.getRecentTracks" class="input" />
+            <input type="text" id="rawUser" placeholder="user (optional)" class="input" />
+            <button type="button" id="btnRaw" class="btn btn-secondary">Call</button>
+          </div>
+          <pre id="rawPreview" class="preview"></pre>
+        </div>
+      </section>
+
+      <div id="error" class="error-banner" hidden></div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
