@@ -51,3 +51,27 @@ API method list: [Last.fm API docs](https://www.last.fm/api/intro) (menu on the 
 
 - Do not expose `LASTFM_API_SECRET` to the browser. All signed/write calls go through your server.
 - In production use HTTPS, a strong `SESSION_SECRET`, and consider a proper session store (e.g. Redis).
+
+## Deploy on Render
+
+1. Push this repo to GitHub.
+2. In Render, create a **Web Service** from the repo.
+3. Configure:
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+4. Add environment variables in Render:
+   - `LASTFM_API_KEY`
+   - `LASTFM_API_SECRET`
+   - `BASE_URL` = your Render URL (example: `https://your-service-name.onrender.com`)
+   - `SESSION_SECRET` = long random string
+   - `NODE_ENV` = `production`
+5. Deploy and verify health check:
+   - `GET /healthz` should return `{ "ok": true }`
+6. In your Last.fm API app settings, set callback URL to:
+   - `https://your-service-name.onrender.com/auth/callback`
+   - (or your custom domain callback if you configured one)
+
+### Render behavior notes
+
+- Sessions are currently in memory (`express-session` default store). This is OK for a single instance, but sessions reset on service restart.
+- For production reliability, use a persistent session store (Redis).

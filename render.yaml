@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: lastfm-webapp
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LASTFM_API_KEY
+        sync: false
+      - key: LASTFM_API_SECRET
+        sync: false
+      - key: BASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false

@@ -15,20 +15,28 @@ const AUTH_URL = "https://www.last.fm/api/auth";
 const app = express();
 const apiKey = process.env.LASTFM_API_KEY;
 const apiSecret = process.env.LASTFM_API_SECRET;
-const baseUrl = (process.env.BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+const isProduction = process.env.NODE_ENV === "production";
+const configuredBaseUrl = (process.env.BASE_URL || "").replace(/\/$/, "");
+const sessionSecret = process.env.SESSION_SECRET;
+
+if (isProduction && !sessionSecret) {
+  throw new Error("SESSION_SECRET is required when NODE_ENV=production");
+}
 
 if (!apiKey || !apiSecret) {
   console.warn("Missing LASTFM_API_KEY or LASTFM_API_SECRET in .env — auth and some features will fail.");
 }
 
 app.use(express.json());
+// Trust Render/hosted proxy so secure cookies and req.protocol work correctly.
+app.set("trust proxy", 1);
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
+    secret: sessionSecret || "dev-secret-change-in-production",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year (persist login across restarts)
     },
@@ -84,10 +92,15 @@ async function lastfmPost(params) {
   return data;
 }
 
+function getBaseUrl(req) {
+  if (configuredBaseUrl) return configuredBaseUrl;
+  return `${req.protocol}://${req.get("host")}`;
+}
+
 // ——— Auth ———
 
 app.get("/auth/login", (req, res) => {
-  const cb = `${baseUrl}/auth/callback`;
+  const cb = `${getBaseUrl(req)}/auth/callback`;
   const url = `${AUTH_URL}/?api_key=${apiKey}&cb=${encodeURIComponent(cb)}`;
   res.redirect(url);
 });
@@ -116,7 +129,7 @@ app.get("/auth/callback", async (req, res) => {
     res.cookie("lastfm_user", user, {
       httpOnly: false,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
     });
     res.redirect("/");
@@ -417,7 +430,11 @@ app.get("/api/artist-image-proxy", async (req, res) => {
   }
 });
 
+app.get("/healthz", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Last.fm webapp running at ${baseUrl || `http://localhost:${PORT}`}`);
+  console.log(`Last.fm webapp running at ${configuredBaseUrl || `http://localhost:${PORT}`}`);
 });
