@@ -253,13 +253,16 @@ btnBubbleLoad.addEventListener("click", async () => {
       const pc = parseInt(a.playcount, 10) || 0;
       const pcRatio = pc / maxPlaycount;
       const radius = Math.max(30, (pcRatio ** (1 / 1.2)) * maxBubbleSize * 0.5);
+      const name = a.name ?? a["#text"] ?? "";
+      const hueSeed = Array.from(name).reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 360;
       return {
-        name: a.name ?? a["#text"] ?? "",
+        name,
         playcount: pc,
         radius,
         x: W / 2 + (Math.random() - 0.5) * 80,
         y: H / 2 + (Math.random() - 0.5) * 80,
         imageUrl: null,
+        fallbackColor: `hsl(${hueSeed}, 58%, 42%)`,
       };
     });
 
@@ -302,7 +305,9 @@ btnBubbleLoad.addEventListener("click", async () => {
       .attr("cx", (d) => d.x)
       .attr("cy", (d) => d.y)
       .attr("r", (d) => d.radius)
-      .style("fill", (d, i) => `url(#img-pattern-${i})`)
+      .style("fill", (d, i) => (d.imageUrl ? `url(#img-pattern-${i})` : d.fallbackColor))
+      .style("stroke", "rgba(255,255,255,0.18)")
+      .style("stroke-width", 1.5)
       .on("mouseover", function(d) {
         d3.select(this).transition().duration(200).attr("r", d.radius * 1.1);
         tooltip.style("visibility", "visible").text(`${d.name}: ${d.playcount} plays`);
@@ -318,6 +323,22 @@ btnBubbleLoad.addEventListener("click", async () => {
         tooltip.style("visibility", "hidden");
       });
 
+    // Show readable artist names when image lookups fail.
+    const fallbackLabels = svg.selectAll("text.fallback-label")
+      .data(nodes.filter((d) => !d.imageUrl))
+      .enter()
+      .append("text")
+      .attr("class", "fallback-label")
+      .attr("x", (d) => d.x)
+      .attr("y", (d) => d.y)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .style("fill", "#ffffff")
+      .style("font-weight", "700")
+      .style("pointer-events", "none")
+      .style("font-size", (d) => `${Math.max(10, Math.min(18, d.radius * 0.26))}px`)
+      .text((d) => d.name);
+
     // Force simulation
     const simulation = d3.forceSimulation(nodes)
       .force("x", d3.forceX(W / 2).strength(0.05))
@@ -325,6 +346,7 @@ btnBubbleLoad.addEventListener("click", async () => {
       .force("collide", d3.forceCollide().radius((d) => d.radius + 1))
       .on("tick", () => {
         circles.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
+        fallbackLabels.attr("x", (d) => d.x).attr("y", (d) => d.y);
       });
 
     // Drag
