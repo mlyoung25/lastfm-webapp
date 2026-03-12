@@ -3,6 +3,7 @@
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
+import axios from 'axios';
 import { createHash } from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -382,6 +383,37 @@ app.get("/api/custom/top-tracks-by-artist", async (req, res) => {
     return res.status(400).json({ error: "Invalid source. Use source=auto|toptracks|recent" });
   } catch (e) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+app.get("/api/artist-image-proxy", async (req, res) => {
+  const artistName = req.query.artist;
+  const username = req.session?.lastfmUsername || "";
+
+  // This follows your old getArtistImage promise logic exactly
+  try {
+    const data = await lastfmGet({
+      method: 'artist.getInfo',
+      api_key: apiKey,
+      artist: artistName,
+      user: username
+    });
+
+    axios({
+      method: 'get',
+      url: data.artist.image[3]['#text'], // Index 3 as in original
+      responseType: 'arraybuffer',
+    })
+    .then((response) => {
+      const base64Image = Buffer.from(response.data, 'binary').toString('base64');
+      const dataUrl = `data:${response.headers['content-type']};base64,${base64Image}`;
+      res.json({ imageUrl: dataUrl });
+    })
+    .catch((err) => {
+      res.status(500).json({ error: err.message });
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

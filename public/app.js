@@ -201,24 +201,14 @@ async function mapLimit(items, limit, fn) {
 }
 
 async function getArtistImageUrl(artistName) {
-  const q = new URLSearchParams({
-    method: "artist.getInfo",
-    artist: artistName,
-    autocorrect: "1",
-  });
-  const res = await fetch(`/api/lastfm?${q}`, { credentials: "include" });
-  const data = await res.json();
-  if (!res.ok) return null;
-  const images = data?.artist?.image;
-  if (!images || !Array.isArray(images)) return null;
-  // prefer extralarge / mega / large if present
-  const pick =
-    images.find((i) => i.size === "extralarge") ||
-    images.find((i) => i.size === "mega") ||
-    images.find((i) => i.size === "large") ||
-    images[images.length - 1];
-  const url = pick?.["#text"];
-  return url || null;
+  try {
+    const res = await fetch(`/api/artist-image-proxy?artist=${encodeURIComponent(artistName)}`);
+    const data = await res.json();
+    return data.imageUrl; // Returns the base64 string
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
 }
 
 btnBubbleLoad.addEventListener("click", async () => {
@@ -282,18 +272,21 @@ btnBubbleLoad.addEventListener("click", async () => {
 
     const defs = svg.append("defs");
 
-    // Pre-create all patterns with a fallback colour so circles render immediately
-    nodes.forEach((b, i) => {
-      const pattern = defs.append("pattern")
-        .attr("id", `img-pattern-${i}`)
-        .attr("width", 1)
-        .attr("height", 1)
-        .attr("patternContentUnits", "objectBoundingBox");
-      pattern.append("rect")
-        .attr("width", 1)
-        .attr("height", 1)
-        .attr("fill", `hsl(${(i * 47 + 280) % 360}, 45%, 22%)`);
-    });
+    await Promise.all(nodes.map(async (node, index) => {
+      node.imageUrl = await getArtistImageUrl(node.name);
+      
+      // Exact same pattern creation logic from your old Pug file
+      if (node.imageUrl) {
+        defs.append("pattern")
+          .attr("id", "img-pattern-" + index)
+          .attr("width", 1)
+          .attr("height", 1)
+          .append("image")
+          .attr("xlink:href", node.imageUrl)
+          .attr("width", node.radius * 2)
+          .attr("height", node.radius * 2);
+      }
+    }));
 
     // Floating tooltip
     const tooltip = d3.select("#bubbleChart")
@@ -353,24 +346,6 @@ btnBubbleLoad.addEventListener("click", async () => {
         })
     );
 
-    // Load images progressively for the biggest ~25 bubbles
-    const toLoad = [...nodes]
-      .sort((a, b) => b.radius - a.radius)
-      .slice(0, Math.min(25, nodes.length));
-
-    await mapLimit(toLoad, 5, async (b) => {
-      const idx = nodes.indexOf(b);
-      const url = await getArtistImageUrl(b.name);
-      if (!url) return;
-      b.imageUrl = url;
-      // Add image on top of the fallback colour inside the existing pattern
-      defs.select(`#img-pattern-${idx}`)
-        .append("image")
-        .attr("href", url)
-        .attr("width", 1)
-        .attr("height", 1)
-        .attr("preserveAspectRatio", "xMidYMid slice");
-    });
   } catch (e) {
     showError(e.message);
   }
