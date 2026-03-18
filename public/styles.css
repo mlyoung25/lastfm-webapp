@@ -28,6 +28,10 @@ body {
   line-height: 1.5;
 }
 
+body.is-api-loading {
+  cursor: progress;
+}
+
 .app {
   max-width: 900px;
   margin: 0 auto;
@@ -359,4 +363,50 @@ body {
 
 .error-banner[hidden] {
   display: none;
+}
+
+.api-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 9, 12, 0.45);
+  backdrop-filter: blur(1px);
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  z-index: 9999;
+}
+
+.api-loading-overlay.visible {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.api-loading-spinner-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.api-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+.api-loading-text {
+  color: var(--text);
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

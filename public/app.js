@@ -36,6 +36,56 @@ const bubblePeriod = document.getElementById("bubblePeriod");
 const bubbleCount = document.getElementById("bubbleCount");
 const btnBubbleLoad = document.getElementById("btnBubbleLoad");
 const bubbleChart = document.getElementById("bubbleChart");
+let apiRequestsInFlight = 0;
+let apiLoadingOverlay = null;
+
+function ensureApiLoadingOverlay() {
+  if (apiLoadingOverlay) return apiLoadingOverlay;
+  const overlay = document.createElement("div");
+  overlay.className = "api-loading-overlay";
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.innerHTML = `
+    <div class="api-loading-spinner-wrap">
+      <div class="api-loading-spinner" aria-hidden="true"></div>
+      <div class="api-loading-text">Loading...</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  apiLoadingOverlay = overlay;
+  return overlay;
+}
+
+function setApiLoading(active) {
+  const overlay = ensureApiLoadingOverlay();
+  overlay.classList.toggle("visible", active);
+  document.body.classList.toggle("is-api-loading", active);
+}
+
+function isApiRequest(input) {
+  const inputUrl = typeof input === "string" ? input : input?.url || "";
+  if (!inputUrl) return false;
+  const url = new URL(inputUrl, window.location.origin);
+  return (
+    url.origin === window.location.origin &&
+    (url.pathname.startsWith("/api/") || url.pathname === "/auth/logout")
+  );
+}
+
+async function apiFetch(input, init) {
+  const trackLoading = isApiRequest(input);
+  if (trackLoading) {
+    apiRequestsInFlight += 1;
+    setApiLoading(true);
+  }
+  try {
+    return await fetch(input, init);
+  } finally {
+    if (trackLoading) {
+      apiRequestsInFlight = Math.max(0, apiRequestsInFlight - 1);
+      setApiLoading(apiRequestsInFlight > 0);
+    }
+  }
+}
 
 function showError(msg) {
   errorBanner.textContent = msg;
@@ -50,7 +100,7 @@ function showPreview(el, data) {
 
 async function checkAuth() {
   try {
-    const res = await fetch("/api/me", { credentials: "include" });
+    const res = await apiFetch("/api/me", { credentials: "include" });
     const data = await res.json();
     if (data.username) {
       usernameEl.textContent = data.username;
@@ -83,14 +133,14 @@ btnLogin.addEventListener("click", () => {
 });
 
 btnLogout.addEventListener("click", async () => {
-  await fetch("/auth/logout", { method: "POST", credentials: "include" });
+  await apiFetch("/auth/logout", { method: "POST", credentials: "include" });
   await checkAuth();
 });
 
 btnRecentExport.addEventListener("click", async () => {
   const limit = recentLimit.value || 50;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/custom/recent-export?limit=${encodeURIComponent(limit)}`,
       { credentials: "include" }
     );
@@ -116,7 +166,7 @@ btnRecentExport.addEventListener("click", async () => {
 btnTopArtists.addEventListener("click", async () => {
   const period = topPeriod.value;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/custom/top-artists?period=${encodeURIComponent(period)}`,
       { credentials: "include" }
     );
@@ -171,7 +221,7 @@ btnRaw.addEventListener("click", async () => {
   const q = new URLSearchParams({ method });
   if (user) q.set("user", user);
   try {
-    const res = await fetch(`/api/lastfm?${q}`, { credentials: "include" });
+    const res = await apiFetch(`/api/lastfm?${q}`, { credentials: "include" });
     const data = await res.json();
     if (!res.ok) {
       showError(data.error || "Request failed");
@@ -202,7 +252,7 @@ async function mapLimit(items, limit, fn) {
 
 async function getArtistImageUrl(artistName) {
   try {
-    const res = await fetch(`/api/artist-image-proxy?artist=${encodeURIComponent(artistName)}`);
+    const res = await apiFetch(`/api/artist-image-proxy?artist=${encodeURIComponent(artistName)}`);
     const data = await res.json();
     return data.imageUrl; // Returns the base64 string
   } catch (err) {
@@ -217,7 +267,7 @@ btnBubbleLoad.addEventListener("click", async () => {
   bubbleChart.innerHTML = "";
 
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/custom/top-artists?period=${encodeURIComponent(period)}&limit=50`,
       { credentials: "include" }
     );
@@ -252,7 +302,7 @@ btnBubbleLoad.addEventListener("click", async () => {
     const nodes = artists.map((a) => {
       const pc = parseInt(a.playcount, 10) || 0;
       const pcRatio = pc / maxPlaycount;
-      const radius = Math.max(30, (pcRatio ** (1 / 1.2)) * maxBubbleSize * 0.5);
+      const radius = Math.max(30, (pcRatio ** (1 / 1.2)) * maxBubbleSize * 0.5) * 2;
       const name = a.name ?? a["#text"] ?? "";
       const hueSeed = Array.from(name).reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 360;
       return {
@@ -392,7 +442,7 @@ function populateArtistDropdown(artists) {
 
 async function loadTopArtistsForPicker() {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/custom/top-artists?period=12month&limit=50",
       { credentials: "include" }
     );
@@ -411,7 +461,7 @@ btnTopTracksByArtist.addEventListener("click", async () => {
   }
   const period = tracksByArtistPeriod.value;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/custom/top-tracks-by-artist?artist=${encodeURIComponent(artist)}&period=${encodeURIComponent(period)}`,
       { credentials: "include" }
     );
@@ -453,4 +503,5 @@ btnTopTracksByArtist.addEventListener("click", async () => {
   }
 });
 
+ensureApiLoadingOverlay();
 checkAuth();
