@@ -1,11 +1,12 @@
 //app.js
 
 const usernameEl = document.getElementById("username");
-const btnLogin = document.getElementById("btnLogin");
-const btnLogout = document.getElementById("btnLogout");
+const btnChangeUser = document.getElementById("btnChangeUser");
 const welcome = document.getElementById("welcome");
 const dashboard = document.getElementById("dashboard");
 const errorBanner = document.getElementById("error");
+const usernameForm = document.getElementById("usernameForm");
+const usernameInput = document.getElementById("usernameInput");
 
 const recentLimit = document.getElementById("recentLimit");
 const btnRecentExport = document.getElementById("btnRecentExport");
@@ -31,6 +32,12 @@ const tracksByArtistResults = document.getElementById("tracksByArtistResults");
 const tracksByArtistMeta = document.getElementById("tracksByArtistMeta");
 const tracksByArtistList = document.getElementById("tracksByArtistList");
 const tracksByArtistPreview = document.getElementById("tracksByArtistPreview");
+
+const firstListenArtistFromTop = document.getElementById("firstListenArtistFromTop");
+const firstListenArtist = document.getElementById("firstListenArtist");
+const firstListenTrack = document.getElementById("firstListenTrack");
+const btnFirstListen = document.getElementById("btnFirstListen");
+const firstListenResult = document.getElementById("firstListenResult");
 
 const bubblePeriod = document.getElementById("bubblePeriod");
 const bubbleCount = document.getElementById("bubbleCount");
@@ -104,8 +111,7 @@ async function checkAuth() {
     const data = await res.json();
     if (data.username) {
       usernameEl.textContent = data.username;
-      btnLogin.hidden = true;
-      btnLogout.hidden = false;
+      btnChangeUser.hidden = false;
       welcome.hidden = true;
       dashboard.hidden = false;
       loadTopArtistsForPicker();
@@ -113,8 +119,7 @@ async function checkAuth() {
     }
   } catch (_) {}
   usernameEl.textContent = "";
-  btnLogin.hidden = false;
-  btnLogout.hidden = true;
+  btnChangeUser.hidden = true;
   welcome.hidden = false;
   dashboard.hidden = true;
   return null;
@@ -128,11 +133,27 @@ if (err) {
   history.replaceState({}, "", location.pathname);
 }
 
-btnLogin.addEventListener("click", () => {
-  window.location.href = "/auth/login";
+usernameForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const username = usernameInput.value.trim();
+  if (!username) { showError("Enter a Last.fm username."); return; }
+  try {
+    const res = await apiFetch("/api/session/username", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+      credentials: "include",
+    });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || "Could not set username."); return; }
+    usernameInput.value = "";
+    await checkAuth();
+  } catch (e) {
+    showError(e.message);
+  }
 });
 
-btnLogout.addEventListener("click", async () => {
+btnChangeUser.addEventListener("click", async () => {
   await apiFetch("/auth/logout", { method: "POST", credentials: "include" });
   await checkAuth();
 });
@@ -325,10 +346,8 @@ btnBubbleLoad.addEventListener("click", async () => {
 
     const defs = svg.append("defs");
 
-    await Promise.all(nodes.map(async (node, index) => {
+    await mapLimit(nodes, 4, async (node, index) => {
       node.imageUrl = await getArtistImageUrl(node.name);
-      
-      // Exact same pattern creation logic from your old Pug file
       if (node.imageUrl) {
         defs.append("pattern")
           .attr("id", "img-pattern-" + index)
@@ -339,7 +358,7 @@ btnBubbleLoad.addEventListener("click", async () => {
           .attr("width", node.radius * 2)
           .attr("height", node.radius * 2);
       }
-    }));
+    });
 
     // Floating tooltip
     const tooltip = d3.select("#bubbleChart")
@@ -424,20 +443,25 @@ btnBubbleLoad.addEventListener("click", async () => {
 });
 
 function populateArtistDropdown(artists) {
-  const sel = artistFromTop;
-  const current = sel.value;
-  sel.innerHTML = '<option value="">— Or type an artist below —</option>';
-  (artists || []).forEach((a) => {
-    const name = a.name ?? a["#text"] ?? "";
-    if (!name) return;
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    sel.appendChild(opt);
+  const dropdowns = [
+    { sel: artistFromTop, placeholder: "— Or type an artist below —" },
+    { sel: firstListenArtistFromTop, placeholder: "— Or type an artist below —" },
+  ];
+  dropdowns.forEach(({ sel, placeholder }) => {
+    const current = sel.value;
+    sel.innerHTML = `<option value="">${placeholder}</option>`;
+    (artists || []).forEach((a) => {
+      const name = a.name ?? a["#text"] ?? "";
+      if (!name) return;
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    if (current && artists.some((a) => (a.name ?? a["#text"]) === current)) {
+      sel.value = current;
+    }
   });
-  if (current && artists.some((a) => (a.name ?? a["#text"]) === current)) {
-    sel.value = current;
-  }
 }
 
 async function loadTopArtistsForPicker() {
@@ -498,6 +522,87 @@ btnTopTracksByArtist.addEventListener("click", async () => {
     });
     tracksByArtistResults.hidden = false;
     showPreview(tracksByArtistPreview, data);
+  } catch (e) {
+    showError(e.message);
+  }
+});
+
+btnFirstListen.addEventListener("click", async () => {
+  const artist = firstListenArtist.value.trim() || firstListenArtistFromTop.value || "";
+  if (!artist) {
+    showError("Choose an artist from the list or type an artist name.");
+    return;
+  }
+  const track = firstListenTrack.value.trim();
+  const q = new URLSearchParams({ artist });
+  if (track) q.set("track", track);
+
+  try {
+    const res = await apiFetch(`/api/custom/first-listen?${q}`, { credentials: "include" });
+    const data = await res.json();
+    if (!res.ok) {
+      showError(data.error || "Request failed");
+      return;
+    }
+
+    firstListenResult.hidden = false;
+    firstListenResult.innerHTML = "";
+
+    if (!data.found) {
+      const msg = document.createElement("p");
+      msg.className = "first-listen-not-found";
+      msg.textContent = data.message || "No results found.";
+      firstListenResult.appendChild(msg);
+      return;
+    }
+
+    const fl = data.firstListen;
+    const date = fl.timestamp
+      ? new Date(fl.timestamp * 1000).toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        })
+      : fl.date || "Unknown date";
+
+    const dateEl = document.createElement("div");
+    dateEl.className = "first-listen-date";
+    dateEl.textContent = date;
+    firstListenResult.appendChild(dateEl);
+
+    if (fl.track) {
+      const trackEl = document.createElement("div");
+      trackEl.className = "first-listen-track";
+      trackEl.textContent = track ? `"${fl.track}" by ${fl.artist}` : `First track: "${fl.track}"`;
+      firstListenResult.appendChild(trackEl);
+    }
+
+    if (fl.note) {
+      const noteEl = document.createElement("div");
+      noteEl.className = "first-listen-meta";
+      noteEl.textContent = fl.note;
+      firstListenResult.appendChild(noteEl);
+    } else if (fl.artist) {
+      const metaEl = document.createElement("div");
+      metaEl.className = "first-listen-meta";
+      const parts = [`Artist: ${fl.artist}`];
+      if (fl.libraryPage) {
+        parts.push(`library page ${fl.libraryPage.toLocaleString()}`);
+      }
+      metaEl.textContent = parts.join(" · ");
+      firstListenResult.appendChild(metaEl);
+    }
+
+    if (fl.libraryPage) {
+      const link = document.createElement("a");
+      link.className = "first-listen-link";
+      link.href = `https://www.last.fm/user/${encodeURIComponent(data.user)}/library?page=${fl.libraryPage}`;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = `View page ${fl.libraryPage.toLocaleString()} of your library →`;
+      firstListenResult.appendChild(link);
+    }
+
   } catch (e) {
     showError(e.message);
   }

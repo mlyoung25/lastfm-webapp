@@ -16,15 +16,17 @@
       <h1 class="logo">Last.fm<span class="logo-accent">+</span></h1>
       <div class="header-actions">
         <span id="username" class="username"></span>
-        <button id="btnLogin" type="button" class="btn btn-primary">Log in with Last.fm</button>
-        <button id="btnLogout" type="button" class="btn btn-ghost" hidden>Log out</button>
+        <button id="btnChangeUser" type="button" class="btn btn-ghost" hidden>Change user</button>
       </div>
     </header>
 
     <main class="main">
       <section id="welcome" class="card welcome">
-        <p>Connect your Last.fm account to use custom features the main site doesn’t offer: export recent tracks, top artists, and any API method you want to add.</p>
-        <p class="muted">Get an API key at <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener">last.fm/api/account/create</a> and set <code>LASTFM_API_KEY</code> and <code>LASTFM_API_SECRET</code> in <code>.env</code>.</p>
+        <p>Enter any Last.fm username to explore custom features the main site doesn't offer.</p>
+        <form id="usernameForm" class="username-form">
+          <input type="text" id="usernameInput" class="input" placeholder="Last.fm username" autocomplete="off" spellcheck="false" />
+          <button type="submit" class="btn btn-primary">Go</button>
+        </form>
       </section>
 
       <section id="dashboard" class="dashboard" hidden>
@@ -56,6 +58,25 @@
             <ol id="tracksByArtistList" class="tracks-list"></ol>
           </div>
           <pre id="tracksByArtistPreview" class="preview"></pre>
+        </div>
+
+        <div class="card tool-card first-listen">
+          <h3>First listen</h3>
+          <p>Find the earliest scrobble for an artist — or search for a specific track.</p>
+          <div class="artist-source">
+            <label class="label">From your top artists</label>
+            <select id="firstListenArtistFromTop" class="input">
+              <option value="">— Load your top artists first —</option>
+            </select>
+            <label class="label">Or type any artist</label>
+            <input type="text" id="firstListenArtist" class="input" placeholder="e.g. Radiohead" />
+            <label class="label">Specific track (optional)</label>
+            <input type="text" id="firstListenTrack" class="input" placeholder="e.g. Creep — leave blank for artist" />
+          </div>
+          <div class="tool-actions">
+            <button type="button" id="btnFirstListen" class="btn btn-primary">Find first listen</button>
+          </div>
+          <div id="firstListenResult" class="first-listen-result" hidden></div>
         </div>
 
         <div class="card tool-card bubble-chart">

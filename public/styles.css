@@ -116,6 +116,17 @@ body.is-api-loading {
   margin-bottom: 1rem;
 }
 
+.username-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.username-form .input {
+  flex: 1;
+  min-width: 0;
+}
+
 .welcome .muted {
   color: var(--muted);
   font-size: 0.9rem;
@@ -302,6 +313,70 @@ body.is-api-loading {
 
 .tracks-list a.track-url:hover {
   text-decoration: underline;
+}
+
+/* First listen */
+.first-listen .artist-source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.first-listen .label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.5rem;
+}
+
+.first-listen .label:first-child {
+  margin-top: 0;
+}
+
+.first-listen-result {
+  margin-top: 1rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.first-listen-date {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+}
+
+.first-listen-track {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.first-listen-meta {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.first-listen-link {
+  margin-top: 0.25rem;
+  color: var(--accent);
+  font-size: 0.88rem;
+  text-decoration: none;
+  align-self: flex-start;
+}
+
+.first-listen-link:hover {
+  text-decoration: underline;
+}
+
+.first-listen-not-found {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0;
 }
 
 /* Bubble chart */

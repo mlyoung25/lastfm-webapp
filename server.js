@@ -57,7 +57,45 @@ function buildApiSig(params) {
   return md5(str + apiSecret);
 }
 
-async function lastfmGet(params) {
+// ——— In-memory response cache ———
+//
+// Keyed by serialised params. Each entry stores the parsed JSON and an
+// expiry timestamp. TTLs are tuned per method: artist metadata is stable
+// for hours; per-user stats are fresh enough after a few minutes.
+
+const apiCache = new Map();
+
+const METHOD_TTL_MS = {
+  "artist.getInfo":            6 * 60 * 60 * 1000, // 6 h   — artist images/bio rarely change
+  "user.getTopArtists":            5 * 60 * 1000,  // 5 min
+  "user.getTopTracks":             5 * 60 * 1000,  // 5 min
+  "user.getRecentTracks":          2 * 60 * 1000,  // 2 min
+  "user.getInfo":                  5 * 60 * 1000,  // 5 min
+  "user.getWeeklyChartList":      60 * 60 * 1000,  // 1 h   — new week added weekly
+  "user.getWeeklyArtistChart": 24 * 60 * 60 * 1000, // 24 h — past weeks are immutable
+  "user.getWeeklyTrackChart":  24 * 60 * 60 * 1000, // 24 h — past weeks are immutable
+};
+const DEFAULT_TTL_MS = 5 * 60 * 1000; // 5 min fallback
+
+function cacheGet(key) {
+  const entry = apiCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { apiCache.delete(key); return null; }
+  return entry.data;
+}
+
+function cacheSet(key, data, ttlMs) {
+  apiCache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+// Last.fm error codes that are transient and safe to retry.
+const LASTFM_RETRYABLE = new Set([11, 16, 29]); // service offline, temp error, rate limit
+
+async function lastfmGet(params, _attempt = 0) {
+  const cacheKey = JSON.stringify(params);
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const clean = Object.fromEntries(
     Object.entries({ ...params, format: "json" }).filter(
       ([, v]) => v != null && v !== ""
@@ -69,7 +107,19 @@ async function lastfmGet(params) {
     headers: { "User-Agent": "LastfmWebapp/1.0 (Custom Web App)" },
   });
   const data = await res.json();
-  if (data.error) throw new Error(data.message || `Last.fm error ${data.error}`);
+
+  if (data.error) {
+    // Retry transient errors with exponential backoff (max 3 retries).
+    if (LASTFM_RETRYABLE.has(data.error) && _attempt < 3) {
+      const delay = 1000 * Math.pow(2, _attempt); // 1s, 2s, 4s
+      await new Promise((r) => setTimeout(r, delay));
+      return lastfmGet(params, _attempt + 1);
+    }
+    throw new Error(data.message || `Last.fm error ${data.error}`);
+  }
+
+  const ttl = METHOD_TTL_MS[params.method] ?? DEFAULT_TTL_MS;
+  cacheSet(cacheKey, data, ttl);
   return data;
 }
 
@@ -137,6 +187,19 @@ app.get("/auth/callback", async (req, res) => {
     console.error(e);
     res.redirect("/?error=" + encodeURIComponent(e.message));
   }
+});
+
+app.post("/api/session/username", (req, res) => {
+  const username = (req.body?.username || "").trim();
+  if (!username) return res.status(400).json({ error: "Username required" });
+  req.session.lastfmUsername = username;
+  res.cookie("lastfm_user", username, {
+    httpOnly: false,
+    sameSite: "lax",
+    secure: isProduction,
+    maxAge: 1000 * 60 * 60 * 24 * 365,
+  });
+  res.json({ ok: true, username });
 });
 
 app.post("/auth/logout", (req, res) => {
@@ -399,6 +462,262 @@ app.get("/api/custom/top-tracks-by-artist", async (req, res) => {
   }
 });
 
+// First time a user scrobbled an artist (or a specific track by that artist).
+//
+// Two-phase strategy:
+//
+// Phase 1 — Binary search over weekly charts (~9 API calls).
+//   user.getWeeklyArtistChart / user.getWeeklyTrackChart tell us the first week
+//   the target appeared with enough plays to be charted. This gives a reliable upper
+//   bound (T_upper) on the first listen date. However, the weekly chart may omit
+//   a single-play first listen (e.g. a one-off discovery before regular listening
+//   started), so T_upper may be slightly later than the real first listen.
+//
+// Phase 2 — Backward scan from T_upper through actual scrobbles.
+//   We fetch user.getRecentTracks with to=T_upper, starting from page 1 (newest
+//   tracks before T_upper) and walking toward older pages. We accumulate the oldest
+//   matching scrobble and stop once MAX_EMPTY_PAGES consecutive pages contain no
+//   match (meaning we have gone far enough back in time). This correctly finds sparse
+//   first listens that the weekly chart missed.
+app.get("/api/custom/first-listen", async (req, res) => {
+  const user = req.query.user || req.session?.lastfmUsername;
+  if (!user) {
+    return res.status(400).json({ error: "Provide ?user= or log in" });
+  }
+  const artistQuery = (req.query.artist || "").trim();
+  if (!artistQuery) {
+    return res.status(400).json({ error: "Provide artist= (artist name)" });
+  }
+  const trackQuery = (req.query.track || "").trim();
+  const normalize = (s) => String(s || "").toLowerCase().trim();
+  const targetArtist = normalize(artistQuery);
+  const targetTrack = trackQuery ? normalize(trackQuery) : null;
+
+  // When the artist IS found via weekly charts, T_upper is a tight window (just that
+  // first week), so Phase 2 finds the match within a handful of pages.  50 consecutive
+  // empty pages is a generous buffer for any within-week gap.
+  const MAX_EMPTY_PAGES = 50;
+  // Hard cap on total pages scanned when the weekly chart DID locate the artist.
+  const MAX_SCAN_PAGES = 500;
+  // When the artist is NOT found in any weekly chart (very few total plays), we scan
+  // from the newest scrobble with NO early-stopping — just a higher page cap.
+  // 600 pages × 200 = 120 000 tracks ≈ ~3–4 years of history from today.
+  // Artists with first listens older than that AND too few plays to appear in any
+  // weekly chart are a known limitation of this fallback path.
+  const MAX_SCAN_PAGES_FALLBACK = 600;
+
+  try {
+    // ── Phase 1: binary search over weekly charts to find T_upper ──────────────
+
+    const chartListData = await lastfmGet({
+      method: "user.getWeeklyChartList",
+      api_key: apiKey,
+      user,
+    });
+    const rawCharts = chartListData?.weeklychartlist?.chart ?? [];
+    const chartList = (Array.isArray(rawCharts) ? rawCharts : [rawCharts])
+      .filter((c) => c?.from && c?.to)
+      .sort((a, b) => parseInt(a.from, 10) - parseInt(b.from, 10)); // oldest first
+
+    if (chartList.length === 0) {
+      return res.json({ user, artist: artistQuery, found: false, message: "No weekly chart history available" });
+    }
+
+    const targetInWeek = async (week) => {
+      try {
+        if (targetTrack) {
+          const data = await lastfmGet({
+            method: "user.getWeeklyTrackChart",
+            api_key: apiKey,
+            user,
+            from: week.from,
+            to: week.to,
+          });
+          const list = data?.weeklytrackchart?.track ?? [];
+          return (Array.isArray(list) ? list : [list]).some(
+            (t) =>
+              normalize(t.artist?.["#text"] ?? t.artist?.name ?? "") === targetArtist &&
+              normalize(t.name ?? "") === targetTrack
+          );
+        } else {
+          const data = await lastfmGet({
+            method: "user.getWeeklyArtistChart",
+            api_key: apiKey,
+            user,
+            from: week.from,
+            to: week.to,
+          });
+          const list = data?.weeklyartistchart?.artist ?? [];
+          return (Array.isArray(list) ? list : [list]).some(
+            (a) => normalize(a.name ?? a["#text"] ?? "") === targetArtist
+          );
+        }
+      } catch {
+        return false;
+      }
+    };
+
+    // Phase 1a — binary search to find an upper-bound week index.
+    // Assumes the listening pattern is monotone [false...true]; works perfectly for
+    // artists listened to continuously. Results are cached 24 h so the ~10 calls here
+    // only hit the network once per user per day.
+    let lo = 0;
+    let hi = chartList.length - 1;
+    let upperBoundIdx = -1;
+
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (await targetInWeek(chartList[mid])) {
+        upperBoundIdx = mid;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
+    }
+
+    // Phase 1b — forward linear scan from week 0 to upperBoundIdx (artist-only queries).
+    // Binary search assumes a monotone [false…true] pattern and breaks when the user
+    // heard an artist once early on, had a long gap, then resumed regular listening
+    // (e.g. one play Jan 2022, silence, heavy listening Aug 2023+).
+    // A forward scan guarantees we find the true first charted week.
+    // Weekly-chart results are cached 24 h so this is only slow on a cold first search.
+    //
+    // Track queries are intentionally excluded: a specific song's chart pattern is
+    // almost always monotone (you don't hear one track, forget it for months, then
+    // rediscover it repeatedly), so binary search alone is correct and we avoid
+    // making potentially hundreds of getWeeklyTrackChart calls.
+    let firstChartWeekIdx = upperBoundIdx;
+    if (!targetTrack && upperBoundIdx > 0) {
+      for (let i = 0; i < upperBoundIdx; i++) {
+        if (await targetInWeek(chartList[i])) {
+          firstChartWeekIdx = i;
+          break;
+        }
+      }
+    }
+
+    // T_upper: scan all scrobbles up to (and including) the end of the first chart week.
+    // If the artist never charted, use the end of the most recent chart (= scan everything).
+    const T_upper =
+      firstChartWeekIdx !== -1
+        ? parseInt(chartList[firstChartWeekIdx].to, 10)
+        : parseInt(chartList[chartList.length - 1].to, 10);
+
+    // ── Phase 2: backward scan from T_upper through actual scrobbles ─────────────
+    //
+    // Page 1 = most-recent scrobbles before T_upper.
+    // We walk from page 1 toward older pages, tracking the oldest match found.
+    //
+    // Two modes:
+    //   • Weekly-chart hit  (upperBoundIdx !== -1): T_upper is a tight 1-week window;
+    //     the match appears within a few pages.  Use MAX_EMPTY_PAGES early-stopping.
+    //   • Fallback          (upperBoundIdx === -1): artist had too few plays to chart.
+    //     Disable early-stopping and scan up to MAX_SCAN_PAGES_FALLBACK pages so we
+    //     don't miss sparse plays separated by large gaps.
+
+    const chartHit = upperBoundIdx !== -1;
+    const scanLimit = chartHit ? MAX_SCAN_PAGES : MAX_SCAN_PAGES_FALLBACK;
+
+    const page1Data = await lastfmGet({
+      method: "user.getRecentTracks",
+      api_key: apiKey,
+      user,
+      to: String(T_upper),
+      limit: "200",
+      page: "1",
+      extended: "1",
+    });
+
+    const totalPagesPre = parseInt(page1Data?.recenttracks?.["@attr"]?.totalPages, 10) || 1;
+
+    let firstMatch = null;
+    let consecutiveEmpty = 0;
+
+    for (let p = 1; p <= Math.min(totalPagesPre, scanLimit); p++) {
+      const data =
+        p === 1
+          ? page1Data
+          : await lastfmGet({
+              method: "user.getRecentTracks",
+              api_key: apiKey,
+              user,
+              to: String(T_upper),
+              limit: "200",
+              page: String(p),
+              extended: "1",
+            });
+
+      const raw = data?.recenttracks?.track ?? [];
+      const tracks = (Array.isArray(raw) ? raw : [raw]).filter((t) => t?.date?.uts);
+
+      let foundInPage = false;
+      for (const t of tracks) {
+        const artistName = t.artist?.name ?? t.artist?.["#text"] ?? "";
+        if (normalize(artistName) !== targetArtist) continue;
+        if (targetTrack && normalize(t.name) !== targetTrack) continue;
+        foundInPage = true;
+        const ts = parseInt(t.date.uts, 10);
+        if (!firstMatch || ts < firstMatch.timestamp) {
+          firstMatch = {
+            track: t.name,
+            artist: artistName,
+            date: t.date["#text"],
+            timestamp: ts,
+            url: t.url,
+          };
+        }
+      }
+
+      if (foundInPage) {
+        consecutiveEmpty = 0;
+      } else if (chartHit) {
+        // Only apply early-stopping when we have a tight T_upper from the weekly chart.
+        consecutiveEmpty++;
+        if (consecutiveEmpty >= MAX_EMPTY_PAGES) break;
+      }
+      // Fallback path: no early-stopping — scan the full scanLimit.
+    }
+
+    if (!firstMatch) {
+      return res.json({
+        user,
+        artist: artistQuery,
+        ...(trackQuery && { track: trackQuery }),
+        found: false,
+        message: `"${artistQuery}${trackQuery ? ` — ${trackQuery}` : ""}" not found in your scrobble history.`,
+      });
+    }
+
+    // Count scrobbles newer than the first listen to calculate the Last.fm library page.
+    // Last.fm's website shows 50 tracks per page at last.fm/user/{user}/library?page=N.
+    let libraryPage = null;
+    try {
+      const afterData = await lastfmGet({
+        method: "user.getRecentTracks",
+        api_key: apiKey,
+        user,
+        from: String(firstMatch.timestamp + 1),
+        limit: "1",
+      });
+      const tracksAfter = parseInt(afterData?.recenttracks?.["@attr"]?.total, 10) || 0;
+      libraryPage = Math.floor(tracksAfter / 50) + 1;
+    } catch (_) {}
+
+    return res.json({
+      user,
+      artist: artistQuery,
+      ...(trackQuery && { track: trackQuery }),
+      found: true,
+      firstListen: {
+        ...firstMatch,
+        ...(libraryPage && { libraryPage }),
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/artist-image-proxy", async (req, res) => {
   const artistName = req.query.artist;
   const username = req.session?.lastfmUsername || "";
@@ -435,6 +754,15 @@ app.get("/healthz", (_req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Last.fm webapp running at ${configuredBaseUrl || `http://localhost:${PORT}`}`);
+app.listen(PORT, async () => {
+  const url = configuredBaseUrl || `http://localhost:${PORT}`;
+  console.log(`Last.fm webapp running at ${url}`);
+  if (!isProduction) {
+    try {
+      const { default: open } = await import("open");
+      await open(url);
+    } catch (_) {
+      // open package not available — visit the URL above manually
+    }
+  }
 });

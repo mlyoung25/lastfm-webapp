@@ -2,3 +2,7 @@ node_modules/
 .env
 .DS_Store
 *.log
+.pnpm-store/
+
+# Personal scrobble export — large file, not for version control
+tests/realdatatestfile.json
