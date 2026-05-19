@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Last.fm — Custom Web App</title>
+  <title>Last.fm+</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -12,6 +12,7 @@
 </head>
 <body>
   <div class="app">
+    <!-- ── Header ─────────────────────────────────────────────── -->
     <header class="header">
       <h1 class="logo">Last.fm<span class="logo-accent">+</span></h1>
       <div class="header-actions">
@@ -20,30 +21,68 @@
       </div>
     </header>
 
-    <main class="main">
-      <section id="welcome" class="card welcome">
-        <p>Enter any Last.fm username to explore custom features the main site doesn't offer.</p>
-        <form id="usernameForm" class="username-form">
-          <input type="text" id="usernameInput" class="input" placeholder="Last.fm username" autocomplete="off" spellcheck="false" />
-          <button type="submit" class="btn btn-primary">Go</button>
-        </form>
-      </section>
+    <!-- ── Hero (collapses when results are active) ───────────── -->
+    <section id="hero" class="hero">
+      <div class="hero-collapse-wrap">
+        <div class="hero-inner">
+          <div class="hero-text">
+            <h2 class="hero-heading">Your music,<br><em class="hero-accent">visualized.</em></h2>
+            <p class="hero-sub">Additional tools to see your listening data and favorite artists.</p>
+            <!-- Username form — shown when logged out -->
+            <section id="welcome" class="hero-welcome">
+              <form id="usernameForm" class="username-form">
+                <input type="text" id="usernameInput" class="input" placeholder="Enter your Last.fm username"
+                       autocomplete="off" spellcheck="false" />
+                <button type="submit" class="btn btn-primary">Go →</button>
+              </form>
+            </section>
+          </div>
+          <div class="hero-visual" aria-hidden="true">
+            <svg class="hero-bars" viewBox="0 0 228 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0"   y="82" width="14" height="38" rx="3" fill="rgba(217,70,239,0.28)"/>
+              <rect x="18"  y="57" width="14" height="63" rx="3" fill="rgba(217,70,239,0.40)"/>
+              <rect x="36"  y="67" width="14" height="53" rx="3" fill="rgba(217,70,239,0.34)"/>
+              <rect x="54"  y="28" width="14" height="92" rx="3" fill="rgba(217,70,239,0.56)"/>
+              <rect x="72"  y="44" width="14" height="76" rx="3" fill="rgba(217,70,239,0.46)"/>
+              <rect x="90"  y="59" width="14" height="61" rx="3" fill="rgba(217,70,239,0.37)"/>
+              <rect x="108" y="12" width="14" height="108" rx="3" fill="rgba(217,70,239,0.72)"/>
+              <rect x="126" y="36" width="14" height="84" rx="3" fill="rgba(217,70,239,0.52)"/>
+              <rect x="144" y="70" width="14" height="50" rx="3" fill="rgba(217,70,239,0.36)"/>
+              <rect x="162" y="26" width="14" height="94" rx="3" fill="rgba(217,70,239,0.60)"/>
+              <rect x="180" y="79" width="14" height="41" rx="3" fill="rgba(217,70,239,0.31)"/>
+              <rect x="198" y="47" width="14" height="73" rx="3" fill="rgba(217,70,239,0.49)"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
 
-      <section id="dashboard" class="dashboard" hidden>
-        <h2>Custom tools</h2>
-        <div class="card tool-card top-tracks-by-artist">
-          <h3>My top tracks by artist</h3>
-          <p>See your most-played tracks for one artist. Pick from your top artists or type any artist name.</p>
-          <div class="artist-source">
-            <label class="label">From your top artists</label>
-            <select id="artistFromTop" class="input">
-              <option value="">— Load your top artists first —</option>
-            </select>
-            <label class="label">Or type any artist</label>
-            <input type="text" id="artistSearch" class="input" placeholder="e.g. Radiohead" />
+    <!-- ── Results Panel (appears above cards when a tool runs) ── -->
+    <div id="resultsPanel" class="results-panel" hidden>
+      <div class="results-panel-header">
+        <h3 id="resultsPanelTitle" class="results-panel-title"></h3>
+        <button id="btnCloseResults" type="button" class="btn btn-ghost results-close">✕ Close</button>
+      </div>
+      <div id="resultsPanelBody" class="results-panel-body"></div>
+    </div>
+
+    <!-- ── Dashboard (shown when logged in) ──────────────────── -->
+    <section id="dashboard" class="dashboard" hidden>
+
+      <!-- Row 1: Top Tracks by Artist  |  Top Artists -->
+      <div class="tool-row-2">
+
+        <!-- Top Artists -->
+        <div class="card tool-card">
+          <div class="tool-card-header">
+            <span class="tool-icon tool-icon--artists" aria-hidden="true">★</span>
+            <div>
+              <h3>Top Artists</h3>
+              <p>View your top artists for a time period, also loads list of artists for the top tracks.</p>
+            </div>
           </div>
           <div class="tool-actions">
-            <select id="tracksByArtistPeriod" class="input-narrow">
+            <select id="topPeriod" class="input-select">
               <option value="7day">Last 7 days</option>
               <option value="1month">1 month</option>
               <option value="3month">3 months</option>
@@ -51,99 +90,157 @@
               <option value="12month" selected>12 months</option>
               <option value="overall">Overall</option>
             </select>
-            <button type="button" id="btnTopTracksByArtist" class="btn btn-primary">Get my top tracks</button>
+            <button type="button" id="btnTopArtists" class="btn btn-primary">Load →</button>
           </div>
+          <div id="topArtistsResults" class="tracks-results" hidden>
+            <p class="results-meta" id="topArtistsMeta"></p>
+            <ol id="topArtistsList" class="tracks-list"></ol>
+          </div>
+        </div>
+
+        <!-- Top Tracks by Artist -->
+        <div class="card tool-card top-tracks-by-artist">
+          <div class="tool-card-header">
+            <span class="tool-icon tool-icon--tracks" aria-hidden="true">♪</span>
+            <div>
+              <h3>My Top Tracks by Artist</h3>
+              <p>See your most played tracks for one artist.</p>
+            </div>
+          </div>
+          <div class="artist-source">
+            <select id="artistFromTop" class="input">
+              <option value="">— Or type an artist below —</option>
+            </select>
+            <input type="text" id="artistSearch" class="input" placeholder="e.g. Radiohead" />
+          </div>
+          <div class="tool-actions">
+            <select id="tracksByArtistPeriod" class="input-select">
+              <option value="7day">Last 7 days</option>
+              <option value="1month">1 month</option>
+              <option value="3month">3 months</option>
+              <option value="6month">6 months</option>
+              <option value="12month" selected>12 months</option>
+              <option value="overall">Overall</option>
+            </select>
+            <button type="button" id="btnTopTracksByArtist" class="btn btn-primary">Get my top tracks →</button>
+          </div>
+          <!-- result container — moved to results panel when populated -->
           <div id="tracksByArtistResults" class="tracks-results" hidden>
             <p class="results-meta" id="tracksByArtistMeta"></p>
             <ol id="tracksByArtistList" class="tracks-list"></ol>
           </div>
-          <pre id="tracksByArtistPreview" class="preview"></pre>
         </div>
 
-        <div class="card tool-card first-listen">
-          <h3>First listen</h3>
-          <p>Find the earliest scrobble for an artist — or search for a specific track.</p>
-          <div class="artist-source">
-            <label class="label">From your top artists</label>
-            <select id="firstListenArtistFromTop" class="input">
-              <option value="">— Load your top artists first —</option>
-            </select>
-            <label class="label">Or type any artist</label>
-            <input type="text" id="firstListenArtist" class="input" placeholder="e.g. Radiohead" />
-            <label class="label">Specific track (optional)</label>
-            <input type="text" id="firstListenTrack" class="input" placeholder="e.g. Creep — leave blank for artist" />
+      </div><!-- /tool-row-2 -->
+
+      <!-- Row 2: Bubble Chart — full width -->
+      <div class="card tool-card bubble-card" id="bubbleCardWrap">
+        <div class="bubble-card-header">
+          <div class="tool-card-header">
+            <span class="tool-icon tool-icon--bubble" aria-hidden="true">◉</span>
+            <div>
+              <h3>Top Artists Bubble Chart</h3>
+              <p>Visualize your top artists as bubbles sized by playcount. Images loaded from Last.fm.</p>
+            </div>
+          </div>
+          <button id="btnBubbleExpand" type="button" class="btn btn-secondary bubble-expand-btn" hidden>
+            ⤢ Full Display
+          </button>
+        </div>
+        <div class="tool-actions">
+          <select id="bubblePeriod" class="input-select">
+            <option value="7day">Last 7 days</option>
+            <option value="1month">1 month</option>
+            <option value="3month">3 months</option>
+            <option value="6month">6 months</option>
+            <option value="12month" selected>12 months</option>
+            <option value="overall">Overall</option>
+          </select>
+              <input type="number" id="bubbleCount" value="50" min="5" max="50" class="input-narrow" title="Max 50 artists" aria-label="Number of artists (max 50)" />
+              <button type="button" id="btnBubbleLoad" class="btn btn-primary">Build Chart →</button>
+        </div>
+        <p class="muted bubble-hint" id="bubbleHint" hidden>Tip: hover a bubble to see the artist name and playcount.</p>
+        <!-- Chart rendered here after Build Chart is clicked — full card width -->
+        <div id="bubbleChart" class="bubble-chart-area" aria-label="Bubble chart" hidden></div>
+      </div>
+
+      <!-- Row 3: First Listen — full width -->
+      <div class="card tool-card first-listen">
+        <div class="tool-card-header">
+          <span class="tool-icon tool-icon--listen" aria-hidden="true">⊛</span>
+          <div>
+            <h3>First Listen</h3>
+            <p>Find the earliest scrobble for an artist — or search for a specific track. <span class="disclaimer">⏱ First searches can take up to 2 minutes.</span></p>
+          </div>
+        </div>
+        <div class="first-listen-controls">
+          <select id="firstListenArtistFromTop" class="input fl-select">
+            <option value="">— Or type an artist below —</option>
+          </select>
+          <input type="text" id="firstListenArtist" class="input fl-artist" placeholder="e.g. Radiohead" />
+          <input type="text" id="firstListenTrack" class="input fl-track" placeholder="Specific track (optional)" />
+          <button type="button" id="btnFirstListen" class="btn btn-primary">Find first listen →</button>
+        </div>
+        <div id="firstListenResult" class="first-listen-result" hidden></div>
+      </div>
+
+      <!-- Footer: Export  |  Raw API -->
+      <div class="footer-section">
+
+        <div class="card tool-card footer-card">
+          <div class="tool-card-header">
+            <span class="tool-icon tool-icon--export" aria-hidden="true">↓</span>
+            <div>
+              <h3>Export Recent Tracks</h3>
+              <p>Download your recent scrobbles.</p>
+            </div>
           </div>
           <div class="tool-actions">
-            <button type="button" id="btnFirstListen" class="btn btn-primary">Find first listen</button>
+            <input type="number" id="recentLimit" value="50" min="1" max="200" class="input-narrow" />
+            <button type="button" id="btnRecentExport" class="btn btn-secondary">Fetch &amp; Download ↓</button>
           </div>
-          <div id="firstListenResult" class="first-listen-result" hidden></div>
         </div>
 
-        <div class="card tool-card bubble-chart">
-          <h3>Top artists bubble chart</h3>
-          <p>Visualize your top artists as bubbles sized by playcount. (Images are loaded from Last.fm when available.)</p>
-          <div class="tool-actions">
-            <select id="bubblePeriod" class="input-narrow">
-              <option value="7day">Last 7 days</option>
-              <option value="1month">1 month</option>
-              <option value="3month">3 months</option>
-              <option value="6month">6 months</option>
-              <option value="12month" selected>12 months</option>
-              <option value="overall">Overall</option>
-            </select>
-            <input type="number" id="bubbleCount" value="50" min="5" max="50" class="input-narrow" />
-            <button type="button" id="btnBubbleLoad" class="btn btn-primary">Build chart</button>
-          </div>
-          <div id="bubbleChart" class="bubble-chart-area" aria-label="Bubble chart"></div>
-          <p class="muted bubble-hint">Tip: hover a bubble to see the artist name and playcount.</p>
-        </div>
-
-        <div class="tool-grid">
-          <div class="card tool-card">
-            <h3>Export recent tracks</h3>
-            <p>Download your recent scrobbles as JSON (with optional date range).</p>
-            <div class="tool-actions">
-              <input type="number" id="recentLimit" value="50" min="1" max="200" class="input-narrow" />
-              <button type="button" id="btnRecentExport" class="btn btn-secondary">Fetch & download</button>
+        <div class="card tool-card footer-card">
+          <div class="tool-card-header">
+            <span class="tool-icon tool-icon--api" aria-hidden="true">&gt;_</span>
+            <div>
+              <h3>Raw API</h3>
+              <p>Call any Last.fm method (read-only). Example: <code>user.getRecentTracks</code> with <code>user=YourUsername</code>.</p>
             </div>
-            <pre id="recentPreview" class="preview"></pre>
           </div>
-          <div class="card tool-card">
-            <h3>Top artists</h3>
-            <p>View your top artists for a time period.</p>
-            <div class="tool-actions">
-              <select id="topPeriod" class="input-narrow">
-                <option value="7day">Last 7 days</option>
-                <option value="1month">1 month</option>
-                <option value="3month">3 months</option>
-                <option value="6month">6 months</option>
-                <option value="12month" selected>12 months</option>
-                <option value="overall">Overall</option>
-              </select>
-              <button type="button" id="btnTopArtists" class="btn btn-secondary">Load</button>
-            </div>
-            <div id="topArtistsResults" class="tracks-results" hidden>
-              <p class="results-meta" id="topArtistsMeta"></p>
-              <ol id="topArtistsList" class="tracks-list"></ol>
-            </div>
-            <pre id="topPreview" class="preview"></pre>
-          </div>
-        </div>
-        <div class="card">
-          <h3>Raw API</h3>
-          <p class="muted">Call any Last.fm method (read-only). Example: <code>user.getRecentTracks</code> with <code>user=YourUsername</code>.</p>
           <div class="raw-api">
             <input type="text" id="rawMethod" placeholder="e.g. user.getRecentTracks" class="input" />
             <input type="text" id="rawUser" placeholder="user (optional)" class="input" />
             <button type="button" id="btnRaw" class="btn btn-secondary">Call</button>
           </div>
-          <pre id="rawPreview" class="preview"></pre>
         </div>
-      </section>
 
-      <div id="error" class="error-banner" hidden></div>
-    </main>
-  </div>
+      </div><!-- /footer-section -->
+
+    </section><!-- /dashboard -->
+
+    <div id="error" class="error-banner" hidden></div>
+  </div><!-- /app -->
+
+  <footer class="site-footer">
+    <span class="footer-copy">© 2026 Last.fm+</span>
+    <a href="https://github.com/mlyoung25" target="_blank" rel="noopener" class="footer-github" aria-label="GitHub">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20" aria-hidden="true">
+        <path d="M12 0C5.37 0 0 5.373 0 12c0 5.303 3.438 9.8 8.205 11.387.6.113.82-.258.82-.577
+                 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756
+                 -1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304
+                 3.492.997.108-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931
+                 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322
+                 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404
+                 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84
+                 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823
+                 2.222 0 1.606-.015 2.898-.015 3.293 0 .322.216.694.825.576C20.565 21.796
+                 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+      </svg>
+    </a>
+  </footer>
+
   <script src="/app.js"></script>
 </body>
 </html>
