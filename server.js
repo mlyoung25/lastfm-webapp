@@ -312,16 +312,23 @@ app.get("/api/custom/top-artists", async (req, res) => {
     return res.status(400).json({ error: "Provide ?user= or log in" });
   }
   const period = req.query.period || "12month";
-  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 50);
+  const wanted = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+  const perPage = 50; // Last.fm caps per-page at 50 for this method
+  const pagesNeeded = Math.ceil(wanted / perPage);
   try {
-    const data = await lastfmGet({
-      method: "user.getTopArtists",
-      api_key: apiKey,
-      user,
-      period,
-      limit: String(limit),
-    });
-    const artists = data?.topartists?.artist ?? [];
+    const pages = await Promise.all(
+      Array.from({ length: pagesNeeded }, (_, i) =>
+        lastfmGet({
+          method: "user.getTopArtists",
+          api_key: apiKey,
+          user,
+          period,
+          limit: String(perPage),
+          page: String(i + 1),
+        })
+      )
+    );
+    const artists = pages.flatMap(d => d?.topartists?.artist ?? []).slice(0, wanted);
     res.json({ user, period, artists });
   } catch (e) {
     res.status(400).json({ error: e.message });

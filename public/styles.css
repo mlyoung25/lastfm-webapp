@@ -11,6 +11,13 @@
   --radius:     12px;
   --font:       "DM Sans", system-ui, sans-serif;
   --font-mono:  "JetBrains Mono", monospace;
+  --content-max: 900px;
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --content-max: min(1400px, calc(100vw - 3rem));
+  }
 }
 
 /* ── Reset ─────────────────────────────────────────────────────── */
@@ -19,6 +26,8 @@
 body {
   margin: 0;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
@@ -28,9 +37,11 @@ body {
 
 body.is-api-loading { cursor: progress; }
 
-/* ── App shell — max 900 px centred ───────────────────────────── */
+/* ── App shell — 900 px default, wider on very large screens ──── */
 .app {
-  max-width: 900px;
+  flex: 1 0 auto;
+  width: 100%;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: 1.5rem 1.5rem 3rem;
 }
@@ -116,15 +127,16 @@ body.is-api-loading { cursor: progress; }
 }
 
 .hero-collapse-wrap {
+  position: relative;
   overflow: hidden;
   min-height: 0;
 }
 
 .hero-inner {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 2rem;
   padding: 2.5rem 0 2rem;
 }
 
@@ -132,9 +144,9 @@ body.is-api-loading { cursor: progress; }
 
 .hero-heading {
   margin: 0 0 0.6rem;
-  font-size: clamp(2rem, 5vw, 3rem);
+  font-size: clamp(3rem, 9vw, 5.5rem);
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.05;
   letter-spacing: -0.03em;
   color: #fff;
 }
@@ -147,18 +159,23 @@ body.is-api-loading { cursor: progress; }
 .hero-sub {
   margin: 0 0 1.5rem;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   max-width: 36ch;
 }
 
+/* Background bars — absolutely positioned, full width, behind content */
 .hero-visual {
-  flex-shrink: 0;
-  opacity: 0.85;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .hero-bars {
-  width: clamp(120px, 22vw, 230px);
-  height: auto;
+  width: 100%;
+  height: 100%;
   display: block;
 }
 
@@ -276,7 +293,7 @@ body.is-api-loading { cursor: progress; }
 .input-select {
   font: inherit;
   font-size: 0.88rem;
-  padding: 0.48rem 0.8rem;
+  padding: 0.48rem 0.6rem;
   border-radius: 7px;
   border: 1px solid var(--border);
   background: var(--surface2);
@@ -293,6 +310,17 @@ body.is-api-loading { cursor: progress; }
 
 .input-narrow  { width: 5.5rem; }
 .input-select  { min-width: 130px; }
+
+select.input,
+select.input-select {
+  padding-right: 1rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%236b647f' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 12px;
+  appearance: none;
+  -webkit-appearance: none;
+}
 
 /* ── Tool actions row ──────────────────────────────────────────── */
 .tool-actions {
@@ -326,8 +354,8 @@ body.is-api-loading { cursor: progress; }
 /* ── Bubble chart card ─────────────────────────────────────────── */
 .bubble-card {
   margin-bottom: 1rem;
-  /* allows expand to bleed beyond max-width container */
   overflow: visible;
+  container-type: inline-size;
   transition: width 0.35s ease, left 0.35s ease, transform 0.35s ease;
 }
 
@@ -338,17 +366,48 @@ body.is-api-loading { cursor: progress; }
   transform: translateX(-50%);
 }
 
-.bubble-card-header {
+.bubble-layout {
+  display: grid;
+  grid-template-columns: 35fr 65fr;
+  gap: 1.25rem;
+  align-items: stretch;
+  min-height: 420px;
+  transition: grid-template-columns 0.35s ease, min-height 0.35s ease;
+}
+
+.bubble-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.bubble-panel-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1rem;
 }
 
-.bubble-card-header .tool-card-header {
+.bubble-panel-head .tool-card-header {
   flex: 1;
   margin-bottom: 0;
+}
+
+.bubble-panel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.bubble-panel-stack {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 .bubble-expand-btn {
@@ -357,12 +416,52 @@ body.is-api-loading { cursor: progress; }
   padding: 0.4rem 0.8rem;
 }
 
+.bubble-panel-stack .bubble-hint {
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface2);
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: var(--muted);
+  width: fit-content;
+  max-width: 30cqw;
+}
+
+/* After build: controls + tip stack on top, chart fills bottom */
+.bubble-card--built .bubble-layout {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+  min-height: 520px;
+}
+
+.bubble-card--built .bubble-panel {
+  gap: 0.75rem;
+}
+
+.bubble-card--built .bubble-panel-head .tool-card-header p {
+  display: none;
+}
+
+.bubble-card--built .bubble-panel-stack {
+  width: 100%;
+}
+
+.bubble-card--built .bubble-panel-stack .bubble-hint {
+  max-width: 30cqw;
+}
+
+.bubble-card--built .bubble-chart-area {
+  min-height: 460px;
+}
 
 /* Actual bubble chart area */
 .bubble-chart-area {
   position: relative;
   width: 100%;
-  min-height: 220px;
+  min-height: 380px;
+  height: 100%;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: radial-gradient(ellipse 120% 60% at 20% 0%, rgba(217,70,239,0.10), transparent 55%),
@@ -370,8 +469,6 @@ body.is-api-loading { cursor: progress; }
               var(--bg);
   overflow: hidden;
 }
-
-.bubble-chart-area[hidden] { display: none; }
 
 .bubble-chart-area svg {
   display: block;
@@ -396,10 +493,28 @@ body.is-api-loading { cursor: progress; }
   z-index: 10;
 }
 
-.bubble-hint {
-  margin-top: 0.75rem;
-  font-size: 0.82rem;
-  color: var(--muted);
+@media (max-width: 720px) {
+  .bubble-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+  }
+
+  .bubble-panel {
+    gap: 0.75rem;
+  }
+
+  .bubble-panel-stack {
+    width: 100%;
+  }
+
+  .bubble-panel-stack .bubble-hint {
+    max-width: min(30cqw, 100%);
+  }
+
+  .bubble-chart-area {
+    min-height: 280px;
+  }
 }
 
 /* ── First Listen card ─────────────────────────────────────────── */
@@ -422,9 +537,11 @@ body.is-api-loading { cursor: progress; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem 1.25rem;
-  display: flex;
   flex-direction: column;
   gap: 0.3rem;
+}
+.first-listen-result:not([hidden]) {
+  display: flex;
 }
 
 .first-listen-date  { font-size: 1.5rem; font-weight: 700; color: var(--accent); line-height: 1.2; }
@@ -627,9 +744,11 @@ code {
 
 /* ── Site footer ───────────────────────────────────────────────── */
 .site-footer {
-  max-width: 900px;
-  margin: 2rem auto 0;
-  padding: 1.25rem 1.5rem;
+  flex-shrink: 0;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 2rem;
   border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
