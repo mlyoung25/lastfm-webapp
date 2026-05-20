@@ -1,0 +1,19 @@
+name: Keep Render awake
+
+on:
+  schedule:
+    # Render free tier sleeps after ~15 min idle; ping every 5 min.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health check
+        env:
+          APP_URL: ${{ secrets.RENDER_APP_URL }}
+        run: |
+          url="${APP_URL:-https://lastfm-webapp.onrender.com}"
+          echo "Pinging ${url}/healthz"
+          curl -fsS --max-time 120 "${url%/}/healthz"

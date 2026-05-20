@@ -4,10 +4,33 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Last.fm+</title>
+  <meta name="description" content="Explore your Last.fm scrobbles with top artists, bubble charts, first-listen search, and more. A fan-made companion for your listening data." />
+  <meta name="theme-color" content="#0f0f12" />
+  <link rel="canonical" href="__SITE_URL__/" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Last.fm+" />
+  <meta property="og:title" content="Last.fm+ — Visualize your listening history" />
+  <meta property="og:description" content="Explore your Last.fm scrobbles with top artists, bubble charts, first-listen search, and more." />
+  <meta property="og:url" content="__SITE_URL__/" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Last.fm+ — Visualize your listening history" />
+  <meta name="twitter:description" content="Explore your Last.fm scrobbles with top artists, bubble charts, first-listen search, and more." />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Last.fm+",
+    "description": "A fan-made web app for exploring Last.fm listening history with charts, exports, and discovery tools.",
+    "url": "__SITE_URL__/",
+    "applicationCategory": "MusicApplication",
+    "operatingSystem": "Any"
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=__ASSET_VERSION__" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/4.13.0/d3.min.js" defer></script>
 </head>
 <body>
@@ -24,9 +47,9 @@
     <!-- ── Hero (collapses when results are active) ───────────── -->
     <section id="hero" class="hero">
       <div class="hero-collapse-wrap">
-        <!-- Background bars — subtle, chaotic heights, gentle rightward trend -->
-        <div class="hero-visual" aria-hidden="true">
-          <svg class="hero-bars" viewBox="0 0 900 200" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- Background: bars by default, now playing when scrobbling -->
+        <div class="hero-visual" id="heroVisual">
+          <svg class="hero-bars" viewBox="0 0 900 200" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <rect x="0"   y="147" width="13" height="18"  rx="2" fill="rgba(217,70,239,0.08)"/>
             <rect x="18"  y="120" width="13" height="45"  rx="2" fill="rgba(217,70,239,0.09)"/>
             <rect x="36"  y="153" width="13" height="12"  rx="2" fill="rgba(217,70,239,0.07)"/>
@@ -80,18 +103,29 @@
           </svg>
         </div>
         <div class="hero-inner">
-          <div class="hero-text">
-            <h2 class="hero-heading">your music <br><em class="hero-accent">visualized</em></h2>
-            <p class="hero-sub">Additional tools for your listening data</p>
-            <!-- Username form — shown when logged out -->
-            <section id="welcome" class="hero-welcome">
-              <form id="usernameForm" class="username-form">
-                <input type="text" id="usernameInput" class="input" placeholder="Enter your Last.fm username"
-                       autocomplete="off" spellcheck="false" />
-                <button type="submit" class="btn btn-primary">Go →</button>
-              </form>
-            </section>
+          <h2 class="hero-heading">your music <br><em class="hero-accent">visualized</em></h2>
+          <div id="heroNowPlaying" class="hero-now-playing" hidden aria-expanded="false">
+            <div class="hero-now-playing-inner">
+              <span class="hero-now-playing-label">Now playing</span>
+              <a id="heroNowPlayingArtLink" class="hero-now-playing-art-link" href="#" target="_blank" rel="noopener">
+                <img id="heroNowPlayingArt" class="hero-now-playing-art" alt="" hidden />
+                <div class="hero-now-playing-art hero-now-playing-art--fallback" id="heroNowPlayingArtFallback" aria-hidden="true">♪</div>
+              </a>
+              <div class="hero-now-playing-meta">
+                <a id="heroNowPlayingTrackLink" class="hero-now-playing-track" href="#" target="_blank" rel="noopener"></a>
+                <span id="heroNowPlayingArtist" class="hero-now-playing-artist"></span>
+              </div>
+            </div>
           </div>
+          <p class="hero-sub">Additional tools for your listening data</p>
+          <!-- Username form — shown when logged out -->
+          <section id="welcome" class="hero-welcome">
+            <form id="usernameForm" class="username-form">
+              <input type="text" id="usernameInput" class="input" placeholder="Enter your Last.fm username"
+                     autocomplete="off" spellcheck="false" />
+              <button type="submit" class="btn btn-primary">Go →</button>
+            </form>
+          </section>
         </div>
       </div>
     </section>
@@ -174,6 +208,9 @@
 
       <!-- Row 2: Bubble Chart — full width -->
       <div class="card tool-card bubble-card" id="bubbleCardWrap">
+        <button id="btnBubbleExpand" type="button" class="btn btn-secondary bubble-expand-btn" hidden>
+          ⤢ Full Display
+        </button>
         <div class="bubble-layout">
           <div class="bubble-panel">
             <div class="bubble-panel-head">
@@ -184,9 +221,6 @@
                   <p>Visualize your top artists as bubbles sized by playcount.</p>
                 </div>
               </div>
-              <button id="btnBubbleExpand" type="button" class="btn btn-secondary bubble-expand-btn" hidden>
-                ⤢ Full Display
-              </button>
             </div>
             <div class="bubble-panel-stack">
               <div class="bubble-panel-controls">
@@ -275,7 +309,10 @@
   </div><!-- /app -->
 
   <footer class="site-footer">
-    <span class="footer-copy">© 2026 Last.fm+</span>
+    <div class="footer-meta">
+      <span class="footer-copy">© 2026 Last.fm+</span>
+      <span class="footer-attribution">Powered by <a href="https://www.last.fm/" target="_blank" rel="noopener">Last.fm</a>. Not affiliated with Last.fm.</span>
+    </div>
     <a href="https://github.com/mlyoung25" target="_blank" rel="noopener" class="footer-github" aria-label="GitHub">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20" aria-hidden="true">
         <path d="M12 0C5.37 0 0 5.373 0 12c0 5.303 3.438 9.8 8.205 11.387.6.113.82-.258.82-.577
@@ -292,6 +329,18 @@
     </a>
   </footer>
 
-  <script src="/app.js"></script>
+  <!-- Bubble chart fullscreen modal -->
+  <div id="bubbleModal" class="bubble-modal" hidden aria-modal="true" role="dialog" aria-labelledby="bubbleModalTitle">
+    <div class="bubble-modal-backdrop" id="bubbleModalBackdrop"></div>
+    <div class="bubble-modal-panel">
+      <div class="bubble-modal-header">
+        <h3 id="bubbleModalTitle" class="bubble-modal-title">Top Artists Bubble Chart</h3>
+        <button id="btnBubbleModalClose" type="button" class="btn btn-ghost">✕ Close</button>
+      </div>
+      <div id="bubbleModalChart" class="bubble-modal-chart bubble-chart-area" aria-label="Bubble chart fullscreen"></div>
+    </div>
+  </div>
+
+  <script src="/app.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>

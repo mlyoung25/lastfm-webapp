@@ -3,12 +3,18 @@
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
-import axios from 'axios';
+import helmet from "helmet";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
 import { createHash } from "crypto";
+import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const publicDir = join(__dirname, "public");
+const assetVersion = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")).version;
+const indexTemplate = readFileSync(join(publicDir, "index.html"), "utf8");
 const LASTFM_ROOT = "https://ws.audioscrobbler.com/2.0/";
 const AUTH_URL = "https://www.last.fm/api/auth";
 
@@ -27,9 +33,31 @@ if (!apiKey || !apiSecret) {
   console.warn("Missing LASTFM_API_KEY or LASTFM_API_SECRET in .env — auth and some features will fail.");
 }
 
+function getBaseUrl(req) {
+  if (configuredBaseUrl) return configuredBaseUrl;
+  return `${req.protocol}://${req.get("host")}`;
+}
+
 app.use(express.json());
 // Trust Render/hosted proxy so secure cookies and req.protocol work correctly.
 app.set("trust proxy", 1);
+app.use(compression());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "https://cdnjs.cloudflare.com"],
+        styleSrc: ["'self'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
 app.use(
   session({
     secret: sessionSecret || "dev-secret-change-in-production",
@@ -43,7 +71,66 @@ app.use(
   })
 );
 
-app.use(express.static(join(__dirname, "public")));
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many auth attempts, please try again later." },
+});
+app.use("/api/", apiLimiter);
+app.use("/auth/", authLimiter);
+
+function renderIndex(req) {
+  const siteUrl = getBaseUrl(req);
+  return indexTemplate
+    .replaceAll("__SITE_URL__", siteUrl)
+    .replaceAll("__ASSET_VERSION__", assetVersion);
+}
+
+app.get("/", (req, res) => {
+  res.type("html").send(renderIndex(req));
+});
+
+app.get("/robots.txt", (req, res) => {
+  const siteUrl = getBaseUrl(req);
+  res.type("text/plain").send(
+    `User-agent: *\nAllow: /\n\nSitemap: ${siteUrl}/sitemap.xml\n`
+  );
+});
+
+app.get("/sitemap.xml", (req, res) => {
+  const siteUrl = getBaseUrl(req);
+  res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${siteUrl}/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+`);
+});
+
+app.use(
+  express.static(publicDir, {
+    index: false,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-cache");
+      } else if (/\.(css|js|svg|png|ico|webp|woff2?)$/i.test(filePath)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    },
+  })
+);
 
 function md5(str) {
   return createHash("md5").update(str, "utf8").digest("hex");
@@ -91,10 +178,12 @@ function cacheSet(key, data, ttlMs) {
 // Last.fm error codes that are transient and safe to retry.
 const LASTFM_RETRYABLE = new Set([11, 16, 29]); // service offline, temp error, rate limit
 
-async function lastfmGet(params, _attempt = 0) {
+async function lastfmGet(params, _attempt = 0, options = {}) {
   const cacheKey = JSON.stringify(params);
-  const cached = cacheGet(cacheKey);
-  if (cached) return cached;
+  if (!options.skipCache) {
+    const cached = cacheGet(cacheKey);
+    if (cached) return cached;
+  }
 
   const clean = Object.fromEntries(
     Object.entries({ ...params, format: "json" }).filter(
@@ -113,13 +202,13 @@ async function lastfmGet(params, _attempt = 0) {
     if (LASTFM_RETRYABLE.has(data.error) && _attempt < 3) {
       const delay = 1000 * Math.pow(2, _attempt); // 1s, 2s, 4s
       await new Promise((r) => setTimeout(r, delay));
-      return lastfmGet(params, _attempt + 1);
+      return lastfmGet(params, _attempt + 1, options);
     }
     throw new Error(data.message || `Last.fm error ${data.error}`);
   }
 
   const ttl = METHOD_TTL_MS[params.method] ?? DEFAULT_TTL_MS;
-  cacheSet(cacheKey, data, ttl);
+  if (!options.skipCache) cacheSet(cacheKey, data, ttl);
   return data;
 }
 
@@ -140,11 +229,6 @@ async function lastfmPost(params) {
   const data = await res.json();
   if (data.error) throw new Error(data.message || `Last.fm error ${data.error}`);
   return data;
-}
-
-function getBaseUrl(req) {
-  if (configuredBaseUrl) return configuredBaseUrl;
-  return `${req.protocol}://${req.get("host")}`;
 }
 
 // ——— Auth ———
@@ -300,6 +384,51 @@ app.get("/api/custom/recent-export", async (req, res) => {
     });
     const tracks = data?.recenttracks?.track ?? [];
     res.json({ user, page, limit, tracks });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Current scrobble (if actively listening)
+app.get("/api/custom/now-playing", async (req, res) => {
+  const user = req.query.user || req.session?.lastfmUsername;
+  if (!user) {
+    return res.status(400).json({ error: "Provide ?user= or log in" });
+  }
+  try {
+    const data = await lastfmGet({
+      method: "user.getRecentTracks",
+      api_key: apiKey,
+      user,
+      limit: "1",
+      extended: "1",
+    }, 0, { skipCache: true });
+    let track = data?.recenttracks?.track;
+    if (!track) return res.json({ playing: false });
+    track = Array.isArray(track) ? track[0] : track;
+    if (track?.["@attr"]?.nowplaying !== "true") {
+      return res.json({ playing: false });
+    }
+
+    const images = track.image
+      ? (Array.isArray(track.image) ? track.image : [track.image])
+      : [];
+    let image = null;
+    for (let i = images.length - 1; i >= 0; i--) {
+      const url = images[i]?.["#text"];
+      if (url) { image = url; break; }
+    }
+
+    res.json({
+      playing: true,
+      track: {
+        name: track.name || "",
+        artist: track.artist?.["#text"] ?? track.artist?.name ?? "",
+        album: track.album?.["#text"] ?? track.album?.name ?? "",
+        url: track.url || null,
+        image,
+      },
+    });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -729,28 +858,30 @@ app.get("/api/artist-image-proxy", async (req, res) => {
   const artistName = req.query.artist;
   const username = req.session?.lastfmUsername || "";
 
-  // This follows your old getArtistImage promise logic exactly
   try {
     const data = await lastfmGet({
-      method: 'artist.getInfo',
+      method: "artist.getInfo",
       api_key: apiKey,
       artist: artistName,
-      user: username
+      user: username,
     });
 
-    axios({
-      method: 'get',
-      url: data.artist.image[3]['#text'], // Index 3 as in original
-      responseType: 'arraybuffer',
-    })
-    .then((response) => {
-      const base64Image = Buffer.from(response.data, 'binary').toString('base64');
-      const dataUrl = `data:${response.headers['content-type']};base64,${base64Image}`;
-      res.json({ imageUrl: dataUrl });
-    })
-    .catch((err) => {
-      res.status(500).json({ error: err.message });
+    const images = data?.artist?.image;
+    const imageUrl = Array.isArray(images) ? images[3]?.["#text"] : null;
+    if (!imageUrl) {
+      return res.status(404).json({ error: "No artist image found" });
+    }
+
+    const imgRes = await fetch(imageUrl, {
+      headers: { "User-Agent": "LastfmWebapp/1.0 (Custom Web App)" },
     });
+    if (!imgRes.ok) {
+      return res.status(imgRes.status).json({ error: `Image fetch failed: ${imgRes.status}` });
+    }
+
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+    res.json({ imageUrl: `data:${contentType};base64,${buffer.toString("base64")}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -4,6 +4,12 @@
 const usernameEl       = document.getElementById("username");
 const btnChangeUser    = document.getElementById("btnChangeUser");
 const hero             = document.getElementById("hero");
+const heroNowPlaying   = document.getElementById("heroNowPlaying");
+const heroNowPlayingArtLink = document.getElementById("heroNowPlayingArtLink");
+const heroNowPlayingTrackLink = document.getElementById("heroNowPlayingTrackLink");
+const heroNowPlayingArt    = document.getElementById("heroNowPlayingArt");
+const heroNowPlayingArtFallback = document.getElementById("heroNowPlayingArtFallback");
+const heroNowPlayingArtist = document.getElementById("heroNowPlayingArtist");
 const welcome          = document.getElementById("welcome");
 const dashboard        = document.getElementById("dashboard");
 const errorBanner      = document.getElementById("error");
@@ -50,8 +56,11 @@ const bubbleCount     = document.getElementById("bubbleCount");
 const btnBubbleLoad   = document.getElementById("btnBubbleLoad");
 const bubbleChart     = document.getElementById("bubbleChart");
 const btnBubbleExpand = document.getElementById("btnBubbleExpand");
-const bubbleHint      = document.getElementById("bubbleHint");
 const bubbleCardWrap  = document.getElementById("bubbleCardWrap");
+const bubbleModal     = document.getElementById("bubbleModal");
+const bubbleModalChart = document.getElementById("bubbleModalChart");
+const bubbleModalBackdrop = document.getElementById("bubbleModalBackdrop");
+const btnBubbleModalClose = document.getElementById("btnBubbleModalClose");
 
 // Export
 const recentLimit     = document.getElementById("recentLimit");
@@ -158,6 +167,128 @@ function showError(msg) {
 }
 
 
+// ── Hero now playing ─────────────────────────────────────────────────────────
+let nowPlayingTimer = null;
+let nowPlayingMobileExpanded = false;
+const heroMobileMq = window.matchMedia("(max-width: 720px)");
+
+function setNowPlayingMobileExpanded(expanded) {
+  nowPlayingMobileExpanded = expanded;
+  if (!heroNowPlaying) return;
+  heroNowPlaying.classList.toggle("hero-now-playing--expanded", expanded);
+  heroNowPlaying.setAttribute("aria-expanded", expanded ? "true" : "false");
+}
+
+function lastfmTrackUrl(artist, track) {
+  if (!artist || !track) return null;
+  const a = encodeURIComponent(artist).replace(/%20/g, "+");
+  const t = encodeURIComponent(track).replace(/%20/g, "+");
+  return `https://www.last.fm/music/${a}/_/${t}`;
+}
+
+function applyNowPlayingLinks(url, track) {
+  const label = track.name ? `Open ${track.name} on Last.fm` : "Open track on Last.fm";
+  for (const el of [heroNowPlayingArtLink, heroNowPlayingTrackLink]) {
+    if (!el) continue;
+    if (url) {
+      el.href = url;
+      el.removeAttribute("aria-disabled");
+      el.setAttribute("aria-label", label);
+    } else {
+      el.href = "#";
+      el.setAttribute("aria-disabled", "true");
+      el.removeAttribute("aria-label");
+    }
+  }
+}
+
+function setHeroNowPlaying(playing, track = null) {
+  if (!heroNowPlaying) return;
+
+  if (playing && track) {
+    heroNowPlaying.hidden = false;
+    setNowPlayingMobileExpanded(false);
+
+    heroNowPlayingTrackLink.textContent = track.name || "Unknown track";
+    heroNowPlayingArtist.textContent = track.artist || "Unknown artist";
+
+    applyNowPlayingLinks(track.url || lastfmTrackUrl(track.artist, track.name), track);
+
+    if (track.image) {
+      heroNowPlayingArt.src = track.image;
+      heroNowPlayingArt.alt = `${track.name} by ${track.artist}`;
+      heroNowPlayingArt.hidden = false;
+      heroNowPlayingArtFallback.hidden = true;
+    } else {
+      heroNowPlayingArt.hidden = true;
+      heroNowPlayingArt.removeAttribute("src");
+      heroNowPlayingArtFallback.hidden = false;
+    }
+  } else {
+    heroNowPlaying.hidden = true;
+    setNowPlayingMobileExpanded(false);
+  }
+}
+
+heroNowPlayingArtLink?.addEventListener("click", (e) => {
+  if (heroNowPlayingArtLink.getAttribute("aria-disabled") === "true") return;
+  if (heroMobileMq.matches && !nowPlayingMobileExpanded) {
+    e.preventDefault();
+    setNowPlayingMobileExpanded(true);
+  }
+});
+
+heroNowPlaying?.addEventListener("click", (e) => {
+  if (!heroMobileMq.matches) return;
+  if (e.target.closest("a")) return;
+  if (nowPlayingMobileExpanded) {
+    setNowPlayingMobileExpanded(false);
+  } else {
+    setNowPlayingMobileExpanded(true);
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!nowPlayingMobileExpanded || !heroMobileMq.matches) return;
+  if (heroNowPlaying?.contains(e.target)) return;
+  setNowPlayingMobileExpanded(false);
+});
+
+heroMobileMq.addEventListener("change", () => setNowPlayingMobileExpanded(false));
+
+async function refreshNowPlaying() {
+  try {
+    const res  = await apiFetch("/api/custom/now-playing", { credentials: "include" });
+    const data = await res.json();
+    if (!res.ok) { setHeroNowPlaying(false); return; }
+    if (data.playing && data.track) {
+      let track = { ...data.track };
+      if (!track.image && track.artist) {
+        track.image = await getArtistImageUrl(track.artist);
+      }
+      setHeroNowPlaying(true, track);
+    } else {
+      setHeroNowPlaying(false);
+    }
+  } catch (_) {
+    setHeroNowPlaying(false);
+  }
+}
+
+function startNowPlayingPoll() {
+  stopNowPlayingPoll();
+  refreshNowPlaying();
+  nowPlayingTimer = setInterval(refreshNowPlaying, 30_000);
+}
+
+function stopNowPlayingPoll() {
+  if (nowPlayingTimer) {
+    clearInterval(nowPlayingTimer);
+    nowPlayingTimer = null;
+  }
+  setHeroNowPlaying(false);
+}
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 async function checkAuth() {
   try {
@@ -170,6 +301,7 @@ async function checkAuth() {
       dashboard.hidden       = false;
       loadTopArtistsForPicker();
       loadBubblePreview();
+      startNowPlayingPoll();
       return data.username;
     }
   } catch (_) {}
@@ -178,6 +310,7 @@ async function checkAuth() {
   welcome.hidden         = false;
   dashboard.hidden       = true;
   clearBubbleChart();
+  stopNowPlayingPoll();
   return null;
 }
 
@@ -450,24 +583,117 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-/** Radius scales vs median playcount: median artist ≈ baseRadius, area ∝ plays. */
-function bubbleRadiusFromMedian(playcount, center, baseRadius) {
-  const ratio = Math.max(playcount, 1) / Math.max(center, 1);
-  const minR = 10;
-  const maxR = 120;
-  return clamp(baseRadius * Math.sqrt(ratio), minR, maxR) * 1.5;
+/** Radius scales vs median playcount to fit a display box (area budget ∝ box size). */
+function bubbleRadiiFromDisplay(playcounts, displayW, displayH) {
+  const center = median(playcounts) || 1;
+  const minSide = Math.min(displayW, displayH);
+  const fillFactor = 0.4;
+  const budget = displayW * displayH * fillFactor;
+  const areaRatios = playcounts.map((pc) => Math.max(parseInt(pc, 10) || 0, 1) / center);
+  const sumAreaRatios = areaRatios.reduce((a, b) => a + b, 0) || 1;
+  const k = Math.sqrt(budget / (Math.PI * sumAreaRatios));
+  const minR = Math.max(8, minSide * 0.02);
+  const maxR = minSide * 0.24;
+  return areaRatios.map((ratio) => clamp(k * Math.sqrt(ratio), minR, maxR));
 }
 
-/** Size the simulation canvas from total bubble area so large counts zoom out. */
-function bubbleCanvasSize(nodes, count) {
+/** Size the preview simulation canvas from total bubble area. */
+function bubbleCanvasSize(nodes) {
   const totalArea = nodes.reduce((sum, n) => sum + Math.PI * n.radius * n.radius, 0);
-  const paddedArea = totalArea / 0.58;
+  const maxR = Math.max(...nodes.map((n) => n.radius), 1);
   const aspect = 4 / 3;
-  const floorW = Math.max(1600, count * 11);
-  const floorH = Math.max(1200, count * 8.25);
-  const h = Math.max(floorH, Math.sqrt(paddedArea / aspect));
-  const w = Math.max(floorW, h * aspect);
+  const diameterSum = nodes.reduce((s, n) => s + n.radius * 2, 0);
+  const h = Math.max(
+    Math.sqrt(totalArea / 0.42 / aspect),
+    diameterSum * 0.58,
+    maxR * 3.6
+  );
+  const w = Math.max(h * aspect, diameterSum * 0.72, maxR * 4.8);
   return { w: Math.round(w), h: Math.round(h) };
+}
+
+/** Measure the on-screen chart box built bubbles are drawn into. */
+function measureBubbleChartBox(chartEl, { fullscreen = false } = {}) {
+  resetChartLayout(chartEl);
+  if (fullscreen) {
+    chartEl.style.height = "100%";
+  }
+
+  const rect = chartEl.getBoundingClientRect();
+  let w = Math.max(Math.round(rect.width), 280);
+  let h = Math.max(Math.round(rect.height), 240);
+
+  if (h < 200) {
+    h = Math.round(w * 0.62);
+    chartEl.style.minHeight = `${h}px`;
+  }
+
+  chartEl.style.height = `${h}px`;
+  return { w, h };
+}
+
+/** Map a pointer/mouse event to SVG viewBox coordinates (works with scaled viewBox). */
+function bubblePointerToSvg(svgNode, event) {
+  const pt = svgNode.createSVGPoint();
+  pt.x = event.clientX;
+  pt.y = event.clientY;
+  const ctm = svgNode.getScreenCTM();
+  if (!ctm) return { x: 0, y: 0 };
+  const loc = pt.matrixTransform(ctm.inverse());
+  return { x: loc.x, y: loc.y };
+}
+
+function attachBubbleDrag(svg, circles, simulation) {
+  const svgNode = svg.node();
+
+  circles
+    .style("touch-action", "none")
+    .style("cursor", "grab")
+    .on("pointerdown", function(d) {
+      const e = d3.event;
+      if (!e) return;
+      e.preventDefault();
+
+      const circle = this;
+      d3.select(circle).attr("cursor", "grabbing").raise();
+      simulation.alphaTarget(0.3).restart();
+
+      function move(ev) {
+        ev.preventDefault();
+        const pt = bubblePointerToSvg(svgNode, ev);
+        d.fx = pt.x;
+        d.fy = pt.y;
+      }
+
+      function up() {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        d3.select(circle).attr("cursor", "grab");
+        simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      }
+
+      move(e);
+      window.addEventListener("pointermove", move, { passive: false });
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+    });
+}
+
+/** Keep bubble centers inside the canvas during simulation and drag. */
+function forceBubbleBounds(width, height) {
+  let nodes;
+  function force() {
+    for (const n of nodes) {
+      const r = n.radius + 2;
+      n.x = clamp(n.x, r, width - r);
+      n.y = clamp(n.y, r, height - r);
+    }
+  }
+  force.initialize = (_) => { nodes = _; };
+  return force;
 }
 
 async function mapLimit(items, limit, fn) {
@@ -498,18 +724,27 @@ function stopBubbleSimulation() {
   }
 }
 
-function createBubbleNodes(artists, { preview = false } = {}) {
-  const playcounts = artists.map((a) => parseInt(a.playcount, 10) || 0);
-  const center     = median(playcounts) || 1;
-  const count      = artists.length;
-  const baseRadius = preview ? 72 : count > 120 ? 30 : count > 70 ? 34 : 40;
-  const maxPc      = Math.max(...playcounts, 1);
+/** Preview bubbles use a larger scale than the built chart. */
+const BUBBLE_PREVIEW_SCALE = 2.625;
 
-  return artists.map((a) => {
+function resetChartLayout(el) {
+  if (!el) return;
+  el.style.minHeight = "";
+  el.style.height = "";
+}
+
+function createBubbleNodes(artists, { preview = false, displayW = 0, displayH = 0 } = {}) {
+  const playcounts = artists.map((a) => parseInt(a.playcount, 10) || 0);
+  const maxPc      = Math.max(...playcounts, 1);
+  const builtRadii = preview
+    ? null
+    : bubbleRadiiFromDisplay(playcounts, displayW, displayH);
+
+  return artists.map((a, i) => {
     const pc   = parseInt(a.playcount, 10) || 0;
     const radius = preview
-      ? clamp((58 + (pc / maxPc) * 82) * 3.5, 203, 490)
-      : bubbleRadiusFromMedian(pc, center, baseRadius);
+      ? clamp((58 + (pc / maxPc) * 82) * BUBBLE_PREVIEW_SCALE, 152, 368)
+      : builtRadii[i];
     const name = a.name ?? a["#text"] ?? "";
     const hue  = Array.from(name).reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
     return {
@@ -524,28 +759,40 @@ function createBubbleNodes(artists, { preview = false } = {}) {
   });
 }
 
-async function renderBubbleChart(artists, { preview = false } = {}) {
+async function renderBubbleChart(artists, { preview = false, container = null, fullscreen = false } = {}) {
+  const chartEl = container || bubbleChart;
   stopBubbleSimulation();
-  bubbleChart.innerHTML = "";
+  chartEl.innerHTML = "";
 
-  const count = artists.length;
-  const nodes = createBubbleNodes(artists, { preview });
-  const { w: W, h: H } = bubbleCanvasSize(nodes, count);
+  let W;
+  let H;
+  let nodes;
 
-  const spread = Math.max(preview ? 170 : 80, Math.min(W, H) * (preview ? 0.13 : 0.06));
+  if (preview) {
+    nodes = createBubbleNodes(artists, { preview: true });
+    ({ w: W, h: H } = bubbleCanvasSize(nodes));
+    resetChartLayout(chartEl);
+  } else {
+    ({ w: W, h: H } = measureBubbleChartBox(chartEl, { fullscreen }));
+    nodes = createBubbleNodes(artists, { preview: false, displayW: W, displayH: H });
+  }
+
+  const patternId = `bubble-${Date.now().toString(36)}`;
+
+  const spread = preview
+    ? Math.min(W, H) * 0.1
+    : Math.min(W, H) * 0.08;
   nodes.forEach((n) => {
     n.x = W / 2 + (Math.random() - 0.5) * spread;
     n.y = H / 2 + (Math.random() - 0.5) * spread;
   });
 
-  bubbleChart.style.minHeight = preview
-    ? ""
-    : `${clamp(Math.round(H * 0.38), 320, 720)}px`;
-
-  const svg = d3.select("#bubbleChart").append("svg")
+  const svg = d3.select(chartEl).append("svg")
     .attr("viewBox", `0,0,${W},${H}`)
-    .attr("preserveAspectRatio", "xMinYMin meet")
-    .style("font", "22px sans-serif");
+    .attr("preserveAspectRatio", "xMidYMid meet")
+    .style("font", "22px sans-serif")
+    .style("width", "100%")
+    .style("height", preview ? "auto" : "100%");
 
   const defs = svg.append("defs");
 
@@ -553,7 +800,7 @@ async function renderBubbleChart(artists, { preview = false } = {}) {
     node.imageUrl = await getArtistImageUrl(node.name);
     if (node.imageUrl) {
       defs.append("pattern")
-        .attr("id", `img-${i}`).attr("width", 1).attr("height", 1)
+        .attr("id", `${patternId}-${i}`).attr("width", 1).attr("height", 1)
         .append("image")
         .attr("xlink:href", node.imageUrl)
         .attr("width",  node.radius * 2)
@@ -561,19 +808,19 @@ async function renderBubbleChart(artists, { preview = false } = {}) {
     }
   });
 
-  const tooltip = d3.select("#bubbleChart").append("div").attr("class", "bubble-tooltip");
+  const tooltip = d3.select(chartEl).append("div").attr("class", "bubble-tooltip");
 
   const circles = svg.selectAll("circle").data(nodes).enter().append("circle")
     .attr("class", "bubble")
     .attr("cx", (d) => d.x).attr("cy", (d) => d.y).attr("r", (d) => d.radius)
-    .style("fill", (d, i) => d.imageUrl ? `url(#img-${i})` : d.fallbackColor)
+    .style("fill", (d, i) => d.imageUrl ? `url(#${patternId}-${i})` : d.fallbackColor)
     .style("stroke", "rgba(255,255,255,0.18)").style("stroke-width", 1.5)
     .on("mouseover", function(d) {
       d3.select(this).transition().duration(200).attr("r", d.radius * 1.1);
       tooltip.style("visibility", "visible").text(`${d.name}: ${d.playcount} plays`);
     })
     .on("mousemove", function() {
-      const r = bubbleChart.getBoundingClientRect();
+      const r = chartEl.getBoundingClientRect();
       tooltip.style("top",  `${d3.event.clientY - r.top  - 10}px`)
              .style("left", `${d3.event.clientX - r.left + 14}px`);
     })
@@ -592,29 +839,23 @@ async function renderBubbleChart(artists, { preview = false } = {}) {
     .text((d) => d.name);
 
   bubbleSimulation = d3.forceSimulation(nodes)
-    .force("x", d3.forceX(W / 2).strength(preview ? 0.06 : 0.05))
-    .force("y", d3.forceY(H / 2).strength(preview ? 0.06 : 0.05))
-    .force("collide", d3.forceCollide().radius((d) => d.radius + 1))
+    .force("x", d3.forceX(W / 2).strength(preview ? 0.22 : 0.08))
+    .force("y", d3.forceY(H / 2).strength(preview ? 0.22 : 0.08))
+    .force("collide", d3.forceCollide().radius((d) => d.radius + (preview ? 3 : 1)).strength(preview ? 1 : 0.7))
     .on("tick", () => {
       circles.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
       labels.attr("x",  (d) => d.x).attr("y",  (d) => d.y);
     });
 
-  bubbleSimulation.alpha(1).restart();
+  bubbleSimulation.force("bounds", forceBubbleBounds(W, H));
 
-  circles.call(
-    d3.drag()
-      .on("start", (d) => {
-        if (!d3.event.active) bubbleSimulation.alphaTarget(0.3).restart();
-        d.fx = d.x; d.fy = d.y;
-      })
-      .on("drag",  (d) => { d.fx = d3.event.x; d.fy = d3.event.y; })
-      .on("end",   (d) => {
-        if (!d3.event.active) bubbleSimulation.alphaTarget(0);
-        d.fx = null; d.fy = null;
-      })
-  );
+  bubbleSimulation.alpha(1).alphaDecay(preview ? 0.012 : 0.0228).restart();
+
+  attachBubbleDrag(svg, circles, bubbleSimulation);
 }
+
+// ── Bubble chart — state & modal ──────────────────────────────────────────────
+let builtBubbleArtists = null;
 
 async function loadBubblePreview() {
   if (dashboard.hidden) return;
@@ -626,8 +867,9 @@ async function loadBubblePreview() {
     );
     const data = await res.json();
     if (!res.ok || !data.artists?.length) return;
-    bubbleCardWrap.classList.remove("bubble-card--built", "bubble-card--expanded");
+    bubbleCardWrap.classList.remove("bubble-card--built");
     btnBubbleExpand.hidden = true;
+    builtBubbleArtists = null;
     await renderBubbleChart(data.artists.slice(0, 5), { preview: true });
   } catch (_) {}
 }
@@ -635,18 +877,36 @@ async function loadBubblePreview() {
 function clearBubbleChart() {
   stopBubbleSimulation();
   bubbleChart.innerHTML = "";
-  bubbleChart.style.minHeight = "";
-  bubbleCardWrap.classList.remove("bubble-card--built", "bubble-card--expanded");
+  resetChartLayout(bubbleChart);
+  bubbleCardWrap.classList.remove("bubble-card--built");
   btnBubbleExpand.hidden = true;
+  builtBubbleArtists = null;
+  closeBubbleModal();
 }
 
-// ── Bubble chart — full expand toggle ────────────────────────────────────────
-let bubbleExpanded = false;
+// ── Bubble chart — fullscreen modal ───────────────────────────────────────────
 
-btnBubbleExpand.addEventListener("click", () => {
-  bubbleExpanded = !bubbleExpanded;
-  bubbleCardWrap.classList.toggle("bubble-card--expanded", bubbleExpanded);
-  btnBubbleExpand.textContent = bubbleExpanded ? "⊠ Collapse" : "⤢ Full Display";
+async function openBubbleModal() {
+  if (!builtBubbleArtists?.length) return;
+  bubbleModal.hidden = false;
+  document.body.style.overflow = "hidden";
+  await renderBubbleChart(builtBubbleArtists, { container: bubbleModalChart, fullscreen: true });
+}
+
+function closeBubbleModal() {
+  if (bubbleModal.hidden) return;
+  bubbleModal.hidden = true;
+  document.body.style.overflow = "";
+  stopBubbleSimulation();
+  bubbleModalChart.innerHTML = "";
+  resetChartLayout(bubbleModalChart);
+}
+
+btnBubbleExpand.addEventListener("click", () => openBubbleModal());
+btnBubbleModalClose?.addEventListener("click", () => closeBubbleModal());
+bubbleModalBackdrop?.addEventListener("click", () => closeBubbleModal());
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !bubbleModal.hidden) closeBubbleModal();
 });
 
 // ── Bubble chart — build ──────────────────────────────────────────────────────
@@ -654,14 +914,12 @@ btnBubbleLoad.addEventListener("click", async () => {
   const period = bubblePeriod.value;
   const count  = clamp(parseInt(bubbleCount.value, 10) || 50, 5, 200);
 
-  // Reset state
-  bubbleExpanded = false;
-  bubbleCardWrap.classList.remove("bubble-card--expanded", "bubble-card--built");
-  btnBubbleExpand.textContent = "⤢ Full Display";
+  closeBubbleModal();
+  builtBubbleArtists = null;
   btnBubbleExpand.hidden = true;
   stopBubbleSimulation();
-  bubbleChart.innerHTML  = "";
-  bubbleChart.style.minHeight = "";
+  bubbleChart.innerHTML = "";
+  resetChartLayout(bubbleChart);
   bubbleCardWrap.classList.add("bubble-card--built");
 
   try {
@@ -671,7 +929,6 @@ btnBubbleLoad.addEventListener("click", async () => {
     );
     const data = await res.json();
     if (!res.ok) {
-      bubbleCardWrap.classList.remove("bubble-card--built");
       await loadBubblePreview();
       showError(data.error || "Request failed");
       return;
@@ -679,17 +936,16 @@ btnBubbleLoad.addEventListener("click", async () => {
 
     const artists = (data.artists || []).slice(0, count);
     if (!artists.length) {
-      bubbleCardWrap.classList.remove("bubble-card--built");
       await loadBubblePreview();
       showError("No artists returned for that period.");
       return;
     }
 
+    builtBubbleArtists = artists;
     await renderBubbleChart(artists);
     btnBubbleExpand.hidden = false;
 
   } catch (e) {
-    bubbleCardWrap.classList.remove("bubble-card--built");
     await loadBubblePreview();
     showError(e.message);
   }
