@@ -1,6 +1,6 @@
 # Last.fm+
 
-A fan-made web app for exploring your [Last.fm](https://www.last.fm/) listening history. Your API secret stays on the server; the browser only talks to your backend.
+A fan-made web app for exploring your [Last.fm](https://www.last.fm/) listening history.
 
 **Live demo:** [lastfm-webapp.onrender.com](https://lastfm-webapp.onrender.com)
 
@@ -43,48 +43,6 @@ Enter a Last.fm username to get started (no OAuth required for read-only tools).
    pnpm dev
    ```
    Opens [http://localhost:3000](http://localhost:3000). Enter a Last.fm username on the hero form.
-
-## Environment variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `LASTFM_API_KEY` | Yes | Last.fm API key |
-| `LASTFM_API_SECRET` | Yes | Last.fm API secret (server only) |
-| `BASE_URL` | Production | Public URL, e.g. `https://lastfm-webapp.onrender.com` |
-| `SESSION_SECRET` | Production | Long random string for session signing |
-| `REDIS_URL` | Recommended | Redis URL for session storage (see below) |
-| `NODE_ENV` | Auto on Render | `development` locally, `production` on Render |
-| `PORT` | No | Defaults to `3000` |
-
-## Deploy on Render
-
-1. Push this repo to GitHub.
-2. Create a **Web Service** on [Render](https://render.com) from the repo (or use the included `render.yaml`).
-3. Set environment variables in the Render dashboard:
-   - `LASTFM_API_KEY`
-   - `LASTFM_API_SECRET`
-   - `BASE_URL` = your Render URL, e.g. `https://lastfm-webapp.onrender.com`
-   - `SESSION_SECRET` = long random string
-   - `REDIS_URL` = Redis connection URL (see **Redis sessions** below)
-4. Deploy and verify: `GET /healthz` → `{ "ok": true }`
-5. In your Last.fm API app settings, set the callback URL to:
-   `https://your-service.onrender.com/auth/callback`
-
-### Keep-alive (free tier)
-
-Render's free plan spins down after ~15 minutes of idle time. A GitHub Actions workflow (`.github/workflows/keep-alive.yml`) pings `/healthz` every 5 minutes to reduce cold starts. After pushing, confirm it runs under **Actions → Keep Render awake**. Optionally set a `RENDER_APP_URL` repo secret if your URL differs from the default.
-
-### Redis sessions
-
-By default, `express-session` stores sessions in memory — they are **lost on every deploy or restart**. For production, set `REDIS_URL` to a Redis instance.
-
-**Upstash (free tier, recommended):**
-
-1. Create a database at [upstash.com](https://upstash.com)
-2. Copy the **Redis URL** (`rediss://…`)
-3. Add it as `REDIS_URL` in Render (and locally in `.env` if desired)
-
-Without `REDIS_URL`, the app still runs but logs a warning and uses in-memory sessions.
 
 ## API overview
 
