@@ -3,6 +3,8 @@
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
+import { RedisStore } from "connect-redis";
+import { createClient } from "redis";
 import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
@@ -58,18 +60,37 @@ app.use(
     crossOriginEmbedderPolicy: false,
   })
 );
-app.use(
-  session({
-    secret: sessionSecret || "dev-secret-change-in-production",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: isProduction,
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year (persist login across restarts)
-    },
-  })
-);
+
+const sessionOptions = {
+  secret: sessionSecret || "dev-secret-change-in-production",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: isProduction,
+    sameSite: "lax",
+    maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year (persist login across restarts)
+  },
+};
+
+const redisUrl = (process.env.REDIS_URL || "").trim();
+if (redisUrl) {
+  const redisClient = createClient({ url: redisUrl });
+  redisClient.on("error", (err) => console.error("Redis client error:", err.message));
+  await redisClient.connect();
+  sessionOptions.store = new RedisStore({
+    client: redisClient,
+    prefix: "lastfm:sess:",
+  });
+  console.log("Session store: Redis");
+} else if (isProduction) {
+  console.warn(
+    "REDIS_URL is not set — using in-memory sessions. Logins are lost on every deploy/restart."
+  );
+} else {
+  console.log("Session store: memory (set REDIS_URL to use Redis locally)");
+}
+
+app.use(session(sessionOptions));
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

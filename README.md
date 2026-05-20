@@ -1,77 +1,142 @@
-# Last.fm Custom Web App
+# Last.fm+
 
-A small web app that connects to the [Last.fm API](https://www.last.fm/api) so you can add features the main Last.fm site doesn’t offer. Your API secret stays on the server; the frontend talks only to your backend.
+A fan-made web app for exploring your [Last.fm](https://www.last.fm/) listening history. Your API secret stays on the server; the browser only talks to your backend.
 
-## Setup
+**Live demo:** [lastfm-webapp.onrender.com](https://lastfm-webapp.onrender.com)
 
-1. **Get API credentials**  
-   Create an app at [last.fm/api/account/create](https://www.last.fm/api/account/create). Set the callback URL to your app (e.g. `http://localhost:3000/auth/callback`).
+## Features
 
-2. **Clone and install**
+- **Top Artists** — ranked list for any time period (7 days → overall)
+- **Top Tracks by Artist** — your most-played tracks for one artist, with fallback scrobble scanning
+- **Bubble Chart** — D3 force chart sized by playcount; preview, build, drag, and fullscreen modal
+- **First Listen** — find the earliest scrobble for an artist or a specific track
+- **Now Playing** — live hero card when you're actively scrobbling
+- **Export** — download recent scrobbles as JSON
+- **Raw API** — call any read-only Last.fm method from the UI
+
+Enter a Last.fm username to get started (no OAuth required for read-only tools). Full Last.fm OAuth is available on the server for future write features.
+
+## Local setup
+
+1. **Get API credentials** at [last.fm/api/account/create](https://www.last.fm/api/account/create). Set the callback URL to `http://localhost:3000/auth/callback`.
+
+2. **Install dependencies**
    ```bash
-   cd lastfm-webapp
-   npm install
+   pnpm install
    ```
 
 3. **Configure environment**
    ```bash
    cp .env.example .env
    ```
-   Edit `.env` and set:
-   - `LASTFM_API_KEY` – your 32-character API key  
-   - `LASTFM_API_SECRET` – your API secret  
-   - `BASE_URL` – e.g. `http://localhost:3000` (must match the callback URL you registered)  
-   - `SESSION_SECRET` – any random string for session signing  
+   Required in `.env`:
+   - `LASTFM_API_KEY` — 32-character API key
+   - `LASTFM_API_SECRET` — API secret
+   - `BASE_URL` — `http://localhost:3000` (must match your Last.fm callback URL)
+   - `SESSION_SECRET` — any random string for signing cookies
+
+   Optional:
+   - `REDIS_URL` — Redis connection URL for persistent sessions (recommended if you test deploy-like behavior locally)
 
 4. **Run**
    ```bash
-   npm run dev
+   pnpm dev
    ```
-   Open `http://localhost:3000`, log in with Last.fm, and use the dashboard.
+   Opens [http://localhost:3000](http://localhost:3000). Enter a Last.fm username on the hero form.
 
-## What’s included
+## Environment variables
 
-- **Login** – Web auth flow: redirect to Last.fm → callback → session stored in cookies.
-- **Public proxy** – `GET /api/lastfm?method=...&user=...` for any read-only Last.fm method (no auth).
-- **Authenticated proxy** – `GET/POST /api/lastfm/auth?method=...` for methods that need a session key (e.g. scrobbling, love, etc.).
-- **Custom tools**
-  - **Export recent tracks** – `GET /api/custom/recent-export?limit=200` – returns JSON and the UI offers a download.
-  - **Top artists** – `GET /api/custom/top-artists?period=12month` – top artists for a period.
-- **Raw API** – From the UI you can call any method (e.g. `user.getRecentTracks`) with optional `user`.
-
-## Adding your own functions
-
-- **New read-only feature**: Add a route in `server.js` that calls `lastfmGet({ method: "package.method", api_key, ...params })` and returns the result (or transform it).
-- **New write feature** (e.g. scrobble, love): Use `lastfmPost({ method, api_key, sk, ...params })` in an authenticated route; ensure the user is logged in and use `req.session.lastfmSessionKey` as `sk`.
-- **New UI**: Add a card in `public/index.html`, hook it in `public/app.js` to call your new backend route.
-
-API method list: [Last.fm API docs](https://www.last.fm/api/intro) (menu on the left).
-
-## Security notes
-
-- Do not expose `LASTFM_API_SECRET` to the browser. All signed/write calls go through your server.
-- In production use HTTPS, a strong `SESSION_SECRET`, and consider a proper session store (e.g. Redis).
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `LASTFM_API_KEY` | Yes | Last.fm API key |
+| `LASTFM_API_SECRET` | Yes | Last.fm API secret (server only) |
+| `BASE_URL` | Production | Public URL, e.g. `https://lastfm-webapp.onrender.com` |
+| `SESSION_SECRET` | Production | Long random string for session signing |
+| `REDIS_URL` | Recommended | Redis URL for session storage (see below) |
+| `NODE_ENV` | Auto on Render | `development` locally, `production` on Render |
+| `PORT` | No | Defaults to `3000` |
 
 ## Deploy on Render
 
 1. Push this repo to GitHub.
-2. In Render, create a **Web Service** from the repo.
-3. Configure:
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-4. Add environment variables in Render:
+2. Create a **Web Service** on [Render](https://render.com) from the repo (or use the included `render.yaml`).
+3. Set environment variables in the Render dashboard:
    - `LASTFM_API_KEY`
    - `LASTFM_API_SECRET`
-   - `BASE_URL` = your Render URL (example: `https://your-service-name.onrender.com`)
+   - `BASE_URL` = your Render URL, e.g. `https://lastfm-webapp.onrender.com`
    - `SESSION_SECRET` = long random string
-   - `NODE_ENV` = `production`
-5. Deploy and verify health check:
-   - `GET /healthz` should return `{ "ok": true }`
-6. In your Last.fm API app settings, set callback URL to:
-   - `https://your-service-name.onrender.com/auth/callback`
-   - (or your custom domain callback if you configured one)
+   - `REDIS_URL` = Redis connection URL (see **Redis sessions** below)
+4. Deploy and verify: `GET /healthz` → `{ "ok": true }`
+5. In your Last.fm API app settings, set the callback URL to:
+   `https://your-service.onrender.com/auth/callback`
 
-### Render behavior notes
+### Keep-alive (free tier)
 
-- Sessions are currently in memory (`express-session` default store). This is OK for a single instance, but sessions reset on service restart.
-- For production reliability, use a persistent session store (Redis).
+Render's free plan spins down after ~15 minutes of idle time. A GitHub Actions workflow (`.github/workflows/keep-alive.yml`) pings `/healthz` every 5 minutes to reduce cold starts. After pushing, confirm it runs under **Actions → Keep Render awake**. Optionally set a `RENDER_APP_URL` repo secret if your URL differs from the default.
+
+### Redis sessions
+
+By default, `express-session` stores sessions in memory — they are **lost on every deploy or restart**. For production, set `REDIS_URL` to a Redis instance.
+
+**Upstash (free tier, recommended):**
+
+1. Create a database at [upstash.com](https://upstash.com)
+2. Copy the **Redis URL** (`rediss://…`)
+3. Add it as `REDIS_URL` in Render (and locally in `.env` if desired)
+
+Without `REDIS_URL`, the app still runs but logs a warning and uses in-memory sessions.
+
+## API overview
+
+| Route | Auth | Description |
+|-------|------|-------------|
+| `GET /api/lastfm?method=…` | No | Public Last.fm proxy (read-only) |
+| `GET/POST /api/lastfm/auth` | Session | Authenticated Last.fm proxy |
+| `GET /api/custom/top-artists` | Username | Top artists for a period |
+| `GET /api/custom/top-tracks-by-artist` | Username | Top tracks for one artist |
+| `GET /api/custom/first-listen` | Username | Earliest scrobble for artist/track |
+| `GET /api/custom/now-playing` | Username | Currently scrobbling track |
+| `GET /api/custom/recent-export` | Username | Recent tracks as JSON |
+| `POST /api/session/username` | No | Set username for read-only session |
+| `GET /auth/login` | No | Last.fm OAuth redirect |
+| `GET /healthz` | No | Health check |
+
+Last.fm API method list: [last.fm/api/intro](https://www.last.fm/api/intro)
+
+## Adding your own features
+
+- **New read-only tool:** Add a route in `server.js` that calls `lastfmGet({ method, api_key, … })`, then wire a card in `public/index.html` and handler in `public/app.js`.
+- **New write feature** (scrobble, love, etc.): Use `lastfmPost` with `req.session.lastfmSessionKey` in an authenticated route.
+- **New UI:** Follow the existing card + results panel pattern in the dashboard.
+
+## Testing
+
+First Listen accuracy can be validated against a local export file:
+
+```bash
+pnpm dev   # in one terminal
+pnpm test  # in another — picks random artists by default
+```
+
+See `tests/test-first-listen.js` for usage (`LASTFM_USER`, `SESSION_COOKIE`, specific artist args).
+
+## Production notes
+
+- **Security:** Helmet (CSP), compression, and rate limiting on `/api/*` and `/auth/*`. API secret never sent to the browser.
+- **Caching:** In-memory TTL cache for Last.fm responses (tuned per method in `server.js`).
+- **SEO:** Meta tags, Open Graph, JSON-LD, `/robots.txt`, `/sitemap.xml`, cache-busted static assets.
+- **Attribution:** Not affiliated with Last.fm. Powered-by link in the site footer.
+
+## Project structure
+
+```
+lastfm-webapp/
+├── server.js           # Express API, auth, Last.fm proxy, custom routes
+├── public/
+│   ├── index.html      # App shell
+│   ├── app.js          # Frontend logic
+│   └── styles.css      # Styles
+├── tests/              # First Listen validation script
+├── render.yaml         # Render deploy config
+└── .github/workflows/  # Keep-alive ping for Render free tier
+```
